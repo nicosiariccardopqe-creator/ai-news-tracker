@@ -1,5 +1,5 @@
 {
-  "name": "AI News Tracker git",
-  "description": "Stay ahead in the AI world with real-time news aggregation, summaries, and trend tracking.",
+  "name": "AI News Tracker Dockerized",
+  "description": "Stay ahead in the AI world with real-time news aggregation, now ready for Docker.",
   "requestFramePermissions": []
 }

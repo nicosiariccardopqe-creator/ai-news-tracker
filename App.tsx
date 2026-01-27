@@ -14,14 +14,14 @@ const App: React.FC = () => {
   const [isAutoSyncEnabled, setIsAutoSyncEnabled] = useState(false);
   const [lastSync, setLastSync] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [isFallbackMode, setIsFallbackMode] = useState(false);
   
   const autoSyncTimerRef = useRef<number | null>(null);
 
   const handleRefresh = useCallback(async (isInitial = false, isBackground = false) => {
-    if (isRefreshing) return; // Evita chiamate multiple contemporanee
+    if (isRefreshing) return;
     
     setIsRefreshing(true);
-    // Mostriamo lo scheletro di caricamento solo se è il primo avvio o un refresh manuale "pesante"
     if (!isBackground || items.length === 0) {
       setStatus(AppState.LOADING);
     }
@@ -35,27 +35,25 @@ const App: React.FC = () => {
       
       setItems(response.items);
       setLastSync(new Date());
+      setIsFallbackMode(response.source_version.includes('fallback'));
       setStatus(response.items.length > 0 ? AppState.SUCCESS : AppState.EMPTY);
     } catch (error: any) {
-      console.error("Fetch error:", error);
+      console.error("Critical App Error:", error);
       if (items.length === 0) setStatus(AppState.ERROR);
     } finally {
       setIsRefreshing(false);
     }
   }, [activeTag, items.length, isRefreshing]);
 
-  // Caricamento iniziale
   useEffect(() => {
     handleRefresh(true);
   }, []);
 
-  // Gestione Auto-sync con lo stesso meccanismo n8n
   useEffect(() => {
     if (isAutoSyncEnabled) {
-      // Esegue un refresh immediato all'attivazione se non è stato fatto di recente
       autoSyncTimerRef.current = window.setInterval(() => {
-        handleRefresh(false, true); // Background fetch
-      }, 30000); // Sincronizzazione ogni 30 secondi per massima reattività
+        handleRefresh(false, true);
+      }, 30000);
     } else {
       if (autoSyncTimerRef.current) {
         clearInterval(autoSyncTimerRef.current);
@@ -69,7 +67,8 @@ const App: React.FC = () => {
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
-      const matchesTag = activeTag === 'TUTTE' || item.tags.some(t => t.toUpperCase() === activeTag.toUpperCase());
+      const matchesTag = activeTag === 'TUTTE' || 
+        item.tags.some(t => t.toUpperCase() === activeTag.toUpperCase());
       const searchLower = searchQuery.toLowerCase().trim();
       const matchesSearch = searchLower === '' || 
         item.title.toLowerCase().includes(searchLower) ||
@@ -87,6 +86,15 @@ const App: React.FC = () => {
           
           <div className="flex-1 w-full space-y-4 sm:space-y-6">
             
+            {isFallbackMode && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 flex items-center gap-3 text-amber-800 text-xs font-medium">
+                <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                </svg>
+                <span>Connessione n8n limitata. Visualizzazione dati in modalità provvisoria (Mock). Controlla i permessi CORS sul server.</span>
+              </div>
+            )}
+
             <section className="bg-white/95 backdrop-blur-md rounded-lg p-3 sm:p-5 card-shadow flex items-center justify-between border border-white/20 min-h-[100px] sm:h-32 text-slate-900">
               <div className="flex items-center gap-4 sm:gap-12 lg:gap-16 px-2 sm:px-6 overflow-x-auto no-scrollbar">
                 <div className="flex items-baseline gap-1.5 sm:gap-3 shrink-0">
@@ -110,8 +118,8 @@ const App: React.FC = () => {
                 <div className="hidden xs:block w-px h-8 sm:h-10 bg-slate-200 shrink-0"></div>
                 <div className="hidden xs:flex items-baseline gap-1.5 sm:gap-3 shrink-0">
                   <div className="relative">
-                    <span className={`text-2xl sm:text-3xl font-extrabold tracking-tighter transition-colors duration-500 ${status === AppState.SUCCESS ? 'text-emerald-500' : 'text-slate-300'}`}>
-                      {status === AppState.SUCCESS ? 'ON' : 'OFF'}
+                    <span className={`text-2xl sm:text-3xl font-extrabold tracking-tighter transition-colors duration-500 ${status === AppState.SUCCESS && !isFallbackMode ? 'text-emerald-500' : 'text-slate-300'}`}>
+                      {status === AppState.SUCCESS && !isFallbackMode ? 'ON' : 'OFF'}
                     </span>
                     {isRefreshing && (
                       <span className="absolute -top-1 -right-3 flex h-3 w-3">
@@ -157,7 +165,7 @@ const App: React.FC = () => {
                 <div className="relative flex-1">
                   <input 
                     type="text" 
-                    placeholder="Filtra tra i risultati n8n..."
+                    placeholder="Filtra tra i risultati..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full h-12 sm:h-14 pl-12 sm:pl-14 pr-10 sm:pr-12 bg-slate-50 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-slate-200 transition-all border border-slate-100"
@@ -193,8 +201,8 @@ const App: React.FC = () => {
               ) : (
                 <div className="col-span-full py-12 sm:py-20 text-center">
                   <div className="bg-white/50 backdrop-blur-sm rounded-lg p-6 sm:p-8 border border-white/20 inline-block w-full max-w-sm">
-                    <h3 className="text-lg sm:text-xl font-bold text-slate-900">In attesa di dati</h3>
-                    <p className="text-slate-500 mt-2 text-sm">Nessuna news trovata. Prova a forzare il refresh o cambia categoria.</p>
+                    <h3 className="text-lg sm:text-xl font-bold text-slate-900">Nessun dato</h3>
+                    <p className="text-slate-500 mt-2 text-sm">Controlla la connessione al server n8n o cambia filtri.</p>
                   </div>
                 </div>
               )}
@@ -231,7 +239,7 @@ const App: React.FC = () => {
               </div>
 
               <div className="mt-6 pt-6 border-t border-zinc-800 text-[9px] font-bold text-zinc-500 text-center uppercase tracking-widest">
-                Data via n8n MCP Server
+                {isFallbackMode ? '⚠️ MODALITÀ FALLBACK' : 'Data via n8n MCP Server'}
               </div>
             </div>
           </aside>

@@ -2,71 +2,129 @@
 import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
+const N8N_MCP_URL = 'https://docker-n8n-xngg.onrender.com/mcp-server/http';
+
 /**
- * Simulates a call to the n8n backend or a local storage cache.
- * In a real app, this would be: fetch(`/api/news?${params}`)
+ * Funzione per mappare i dati grezzi provenienti da n8n in NewsItem validi
  */
-export async function fetchNews(params: { tags?: string[]; source?: string } = {}): Promise<NewsResponse> {
-  // Simulate network delay
-  await new Promise(resolve => setTimeout(resolve, 1500));
-
-  // Simulating an error 10% of the time for testing robust UI
-  if (Math.random() < 0.05) {
-    throw new Error('UPSTREAM_UNAVAILABLE');
-  }
-
-  let items = [...MOCK_INITIAL_NEWS];
-
-  // Filtering logic
-  if (params.tags && params.tags.length > 0 && !params.tags.includes('Tutti')) {
-    items = items.filter(item => item.tags.some(tag => params.tags?.includes(tag)));
-  }
-
-  if (params.source && params.source !== 'Tutte') {
-    items = items.filter(item => item.source.name === params.source);
-  }
-
-  // Simulate "new" items on refresh by occasionally adding one
-  if (Math.random() > 0.5) {
-    const newItem: NewsItem = {
-      id: Math.random().toString(36).substr(2, 9),
-      title: `News Aggiornata: Breakthrough nel campo ${params.tags?.[0] || 'AI'}`,
-      summary: 'Una scoperta dell\'ultima ora promette di cambiare radicalmente l\'approccio allo scaling dei modelli attuali. I ricercatori hanno osservato comportamenti emergenti inaspettati.',
-      url: 'https://example.com/breaking-news',
-      source: { name: 'AI Pulse News', domain: 'aipulse.ai' },
-      published_at: new Date().toISOString(),
-      fetched_at: new Date().toISOString(),
-      tags: params.tags && params.tags.length > 0 && params.tags[0] !== 'Tutti' ? [params.tags[0]] : ['Trend'],
-      thumbnail: `https://picsum.photos/seed/${Math.random()}/800/450`,
-      language: 'it',
-      score: { freshness: 1.0, relevance: 0.9, popularity: 0.5 }
-    };
-    items.unshift(newItem);
-  }
-
-  const processedItems = dedupeAndSort(items);
-
+function mapRawToNewsItem(raw: any): NewsItem {
   return {
-    generated_at: new Date().toISOString(),
-    source_version: 'n8n:ai-news-v1.2-sim',
-    items: processedItems,
-    paging: {
-      next_cursor: null,
-      count: processedItems.length
+    id: raw.id || raw.guid || Math.random().toString(36).substr(2, 9),
+    title: raw.title || raw.headline || 'Titolo non disponibile',
+    summary: raw.summary || raw.description || raw.content || 'Nessun sommario disponibile per questa notizia.',
+    url: raw.url || raw.link || '#',
+    source: {
+      name: raw.source_name || raw.author || raw.source?.name || 'FONTE AI',
+      domain: raw.domain || raw.source?.domain || 'news.ai'
+    },
+    published_at: raw.published_at || raw.date || raw.pubDate || new Date().toISOString(),
+    fetched_at: new Date().toISOString(),
+    tags: Array.isArray(raw.tags) ? raw.tags : (raw.category ? [raw.category] : ['AI']),
+    thumbnail: raw.thumbnail || raw.image || raw.enclosure?.url || '',
+    language: raw.language || 'it',
+    score: {
+      freshness: raw.score?.freshness || 1.0,
+      relevance: raw.score?.relevance || 0.9,
+      popularity: raw.score?.popularity || 0.5
     }
   };
+}
+
+/**
+ * Recupera le news reali dall'automazione n8n
+ */
+export async function fetchNews(params: { tags?: string[]; source?: string } = {}): Promise<NewsResponse> {
+  try {
+    // Nota: Trattandosi di un MCP server su Render, facciamo una chiamata POST 
+    // cercando di invocare un tool di "get_news" o semplicemente recuperando i dati.
+    // Se l'endpoint n8n è configurato come webhook standard, useremo una GET/POST diretta.
+    
+    const response = await fetch(N8N_MCP_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      // Struttura tipica per chiamare un tool su MCP bridge n8n
+      body: JSON.stringify({
+        method: 'tools/call',
+        params: {
+          name: 'get_ai_news', // Nome ipotetico del tool nell'automazione
+          arguments: {
+            category: params.tags?.[0] || 'all',
+            limit: 20
+          }
+        }
+      })
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP_ERROR_${response.status}`);
+    }
+
+    const data = await response.json();
+    
+    // Gestione flessibile della risposta n8n (array diretto o oggetto MCP)
+    let rawItems = [];
+    if (Array.isArray(data)) {
+      rawItems = data;
+    } else if (data.content && Array.isArray(data.content)) {
+      // Formato MCP: content: [{ type: 'text', text: '...' }]
+      const textContent = data.content.find((c: any) => c.type === 'text')?.text;
+      if (textContent) {
+        try {
+          const parsed = JSON.parse(textContent);
+          rawItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
+        } catch {
+          rawItems = [];
+        }
+      }
+    } else if (data.items) {
+      rawItems = data.items;
+    }
+
+    // Se n8n non restituisce nulla, usiamo i mock come fallback sicuro (world-class resilience)
+    if (rawItems.length === 0) {
+      console.warn('N8N ha restituito 0 risultati, uso fallback mock.');
+      return {
+        generated_at: new Date().toISOString(),
+        source_version: 'fallback-mock',
+        items: dedupeAndSort(MOCK_INITIAL_NEWS),
+        paging: { next_cursor: null, count: MOCK_INITIAL_NEWS.length }
+      };
+    }
+
+    const items = rawItems.map(mapRawToNewsItem);
+    const processedItems = dedupeAndSort(items);
+
+    return {
+      generated_at: new Date().toISOString(),
+      source_version: 'n8n-live-feed',
+      items: processedItems,
+      paging: {
+        next_cursor: null,
+        count: processedItems.length
+      }
+    };
+
+  } catch (error) {
+    console.error('[NewsService] Error fetching from n8n:', error);
+    // In caso di errore server, non rompiamo l'app: restituiamo i dati iniziali
+    return {
+      generated_at: new Date().toISOString(),
+      source_version: 'error-fallback',
+      items: dedupeAndSort(MOCK_INITIAL_NEWS),
+      paging: { next_cursor: null, count: MOCK_INITIAL_NEWS.length }
+    };
+  }
 }
 
 export function dedupeAndSort(arr: NewsItem[]): NewsItem[] {
   const map = new Map<string, NewsItem>();
   for (const it of arr) {
-    // Deduplication key: normalized title + domain
     const key = `${(it.title || '').trim().toLowerCase()}|${(it.source?.domain || '').toLowerCase()}`;
-    
     if (!map.has(key)) {
       map.set(key, it);
     } else {
-      // Keep the most recent version
       const existing = map.get(key)!;
       if (new Date(it.published_at) > new Date(existing.published_at)) {
         map.set(key, it);
@@ -86,28 +144,17 @@ export function formatTimeAgo(dateString: string): string {
 
   let interval = Math.floor(seconds / 31536000);
   if (interval >= 1) return interval === 1 ? '1 anno fa' : `${interval} anni fa`;
-  
   interval = Math.floor(seconds / 2592000);
   if (interval >= 1) return interval === 1 ? '1 mese fa' : `${interval} mesi fa`;
-  
   interval = Math.floor(seconds / 86400);
   if (interval >= 1) return interval === 1 ? 'ieri' : `${interval} giorni fa`;
-  
   interval = Math.floor(seconds / 3600);
   if (interval >= 1) return interval === 1 ? '1h fa' : `${interval}h fa`;
-  
   interval = Math.floor(seconds / 60);
   if (interval >= 1) return interval === 1 ? '1 min fa' : `${interval} min fa`;
-  
   return 'proprio ora';
 }
 
-export function trackTelemetry(event: 'cta_refresh_clicked' | 'news_impression' | 'news_click_out' | 'filter_applied' | 'error_shown', data?: any) {
-  const telemetry = {
-    event,
-    timestamp: new Date().toISOString(),
-    data
-  };
-  console.log('[Telemetry]', telemetry);
-  // In a real app, send to a tracking endpoint
+export function trackTelemetry(event: string, data?: any) {
+  console.log('[Telemetry]', { event, timestamp: new Date().toISOString(), data });
 }

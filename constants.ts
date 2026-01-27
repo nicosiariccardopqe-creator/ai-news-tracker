@@ -5,7 +5,6 @@ export const CATEGORIES = [
   'TUTTE',
   'MACHINE LEARNING',
   'ETICA AI',
-  'NUOVI MODELLI',
   'REGOLAMENTAZIONE',
   'HARDWARE'
 ];

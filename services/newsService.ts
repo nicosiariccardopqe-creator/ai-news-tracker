@@ -2,7 +2,8 @@
 import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
-export const MCP_ENDPOINT = '/api/news/default';
+// Endpoint MCP aggiornato all'URL completo richiesto
+export const MCP_ENDPOINT = 'https://docker-n8n-xngg.onrender.com/mcp-server/http';
 
 /**
  * Tenta di recuperare le news dal server primario.
@@ -10,22 +11,38 @@ export const MCP_ENDPOINT = '/api/news/default';
  */
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   try {
-    // TENTATIVO PRIMARIO: Chiamata al server MCP (simulata o reale)
+    // Chiamata all'endpoint MCP assoluto
+    // Aumentiamo il timeout a 60 secondi perché Render (free tier) può impiegare molto tempo per lo spin-up (cold start)
     const response = await fetch(MCP_ENDPOINT, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-      signal: AbortSignal.timeout(2000) // Timeout rapido per testare il fallback
+      headers: { 
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        method: "NewsAI", // Tool corretto come richiesto
+        params: params
+      }),
+      signal: AbortSignal.timeout(60000) 
     });
 
     if (!response.ok) {
-      throw new Error(`Server MCP ha risposto con status ${response.status}`);
+      const errorInfo = await response.text().catch(() => response.statusText);
+      throw new Error(`Server MCP [${response.status}]: ${errorInfo}`);
     }
 
     return await response.json();
   } catch (error: any) {
-    // Se la chiamata fallisce, rilanciamo l'errore per il logger dell'App
-    const stackError = new Error(`[MCP_FAILURE] Impossibile recuperare news da ${MCP_ENDPOINT}: ${error.message}`);
+    let errorMessage = error.message;
+
+    // Gestione specifica degli errori comuni in ambiente browser
+    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+      errorMessage = "Timeout (60s). Il server Render potrebbe essere in fase di avvio o sovraccarico.";
+    } else if (errorMessage === 'Failed to fetch') {
+      errorMessage = "Failed to fetch: Probabile errore CORS o server non raggiungibile. Assicurati che il server MCP accetti richieste da questa origine.";
+    }
+
+    // Rilancio dell'errore con contesto per il sistema di log UI
+    const stackError = new Error(`Errore connessione MCP [${MCP_ENDPOINT}]: ${errorMessage}`);
     (stackError as any).isProviderError = true;
     (stackError as any).originalStack = error.stack;
     throw stackError;

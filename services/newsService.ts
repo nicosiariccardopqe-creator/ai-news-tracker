@@ -2,22 +2,16 @@
 import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
-const MCP_SERVER_URL = 'https://docker-n8n-xngg.onrender.com/mcp/http';
-
 /**
  * Funzione principale per recuperare le news.
- * Comunica direttamente con l'endpoint MCP di n8n.
+ * Ora chiama il backend dell'applicazione (same-origin).
  */
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   try {
     const query = params.tags?.[0] || 'AI news';
-    
-    // CRITICO: Utilizziamo il percorso letterale 'process.env.MCP_TOKEN' 
-    // affinché il plugin 'define' di Vite possa sostituirlo staticamente nel codice.
-    // L'accesso tramite oggetto (process.env as any) fallisce nel browser.
-    const token = process.env.MCP_TOKEN || '';
+    const LOCAL_API_URL = '/api/mcp/news';
 
-    console.debug(`[NewsService] Calling MCP Server: ${MCP_SERVER_URL} for query: ${query}`);
+    console.debug(`[NewsService] Fetching from Backend: ${LOCAL_API_URL}`);
 
     const mcpRequest = {
       jsonrpc: '2.0',
@@ -33,20 +27,17 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
       }
     };
 
-    const response = await fetch(MCP_SERVER_URL, {
+    const response = await fetch(LOCAL_API_URL, {
       method: 'POST',
       headers: { 
-        'Authorization': `Bearer ${token}`,
-        'Content-Type': 'application/json',
-        'Accept': 'application/json, application/json-rpc, text/event-stream' 
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify(mcpRequest)
     });
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => 'No response body');
-      console.error(`[NewsService] HTTP ${response.status}: ${errorText}`);
-      throw new Error(`Server Error ${response.status}: ${errorText.substring(0, 100)}`);
+      throw new Error(`Backend Error ${response.status}: ${errorText.substring(0, 100)}`);
     }
 
     const result = await response.json();
@@ -57,7 +48,6 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
 
     let rawItems: any[] = [];
     
-    // Parsing risposta MCP JSON-RPC
     if (result?.result?.content && Array.isArray(result.result.content)) {
       const textPart = result.result.content.find((c: any) => c.type === 'text');
       if (textPart?.text) {
@@ -65,7 +55,6 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
           const parsed = JSON.parse(textPart.text);
           rawItems = Array.isArray(parsed) ? parsed : (parsed.items || parsed.news || []);
         } catch (e) {
-          console.error('[NewsService] Error parsing MCP content text:', e);
           rawItems = [];
         }
       }
@@ -74,23 +63,18 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     }
 
     if (!rawItems.length) {
-      console.warn('[NewsService] No news items returned from MCP');
       return createFallbackResponse('empty-result');
     }
 
     return {
       generated_at: new Date().toISOString(),
-      source_version: 'direct-mcp-live',
+      source_version: 'backend-proxy-live',
       items: dedupeAndSort(rawItems.map(mapRawToNewsItem)),
       paging: { next_cursor: null, count: rawItems.length }
     };
   } catch (err: any) {
-    console.error('[NewsService] Direct Fetch Error:', err.message);
-    // 'Failed to fetch' di solito indica un errore di rete o un blocco CORS nel browser.
-    const detailedMessage = err.message === 'Failed to fetch' 
-      ? 'Connessione Fallita (CORS o Rete). Il browser ha bloccato la richiesta diretta a n8n. Verifica se il server n8n permette le richieste dal dominio dell\'app.'
-      : err.message;
-    return createFallbackResponse('mcp-direct-failure', detailedMessage);
+    console.error('[NewsService] Error calling backend:', err.message);
+    return createFallbackResponse('backend-failure', err.message);
   }
 }
 

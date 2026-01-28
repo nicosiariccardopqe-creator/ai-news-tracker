@@ -24,13 +24,16 @@ const App: React.FC = () => {
       setSourceVersion(response.source_version);
       setStatus(AppState.SUCCESS);
     } catch (error) {
+      console.error("Errore durante il refresh:", error);
       setStatus(AppState.ERROR);
     } finally {
       setIsRefreshing(false);
     }
   }, [activeTag, isRefreshing]);
 
-  useEffect(() => { handleRefresh(true); }, []);
+  useEffect(() => { 
+    handleRefresh(true); 
+  }, []);
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -42,10 +45,11 @@ const App: React.FC = () => {
     });
   }, [items, activeTag, searchQuery]);
 
+  const isLive = sourceVersion === 'backend-proxy-live';
   const isFallback = sourceVersion.startsWith('fallback-');
 
   return (
-    <div className="min-h-screen pb-12">
+    <div className="min-h-screen pb-12 animate-fade-in">
       <Navbar />
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-8">
@@ -62,18 +66,24 @@ const App: React.FC = () => {
                   <div className="w-px h-12 bg-slate-100"></div>
                   <div className="flex flex-col">
                     <span className="text-xl font-black text-slate-900 leading-none mb-1">Status Radar</span>
-                    <span className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${sourceVersion === 'backend-proxy-live' ? 'text-emerald-500' : 'text-amber-500'}`}>
-                      <span className={`w-1.5 h-1.5 rounded-full bg-current ${sourceVersion === 'backend-proxy-live' ? 'animate-pulse' : ''}`}></span>
-                      {sourceVersion === 'backend-proxy-live' ? 'Connessione Live' : 'Notizie di Archivio'}
+                    <span className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${isLive ? 'text-emerald-500' : 'text-amber-500'}`}>
+                      <span className={`w-1.5 h-1.5 rounded-full bg-current ${isLive ? 'animate-pulse' : ''}`}></span>
+                      {isLive ? 'Connessione Live' : 'Notizie di Archivio'}
                     </span>
                   </div>
                </div>
-               <button onClick={() => handleRefresh()} disabled={isRefreshing} className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl disabled:opacity-50">
-                 <svg className={`w-8 h-8 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+               <button 
+                onClick={() => handleRefresh()} 
+                disabled={isRefreshing} 
+                className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl active:scale-95 disabled:opacity-50"
+               >
+                 <svg className={`w-8 h-8 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                 </svg>
                </button>
             </section>
 
-            {/* Ricerca e Filtri */}
+            {/* Barra di ricerca full width e Tag sotto */}
             <section className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 card-shadow border border-white/50 space-y-6">
               <div className="relative w-full">
                 <input 
@@ -83,14 +93,19 @@ const App: React.FC = () => {
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full h-16 pl-16 pr-6 bg-slate-100/50 rounded-2xl text-lg font-semibold focus:outline-none focus:ring-4 focus:ring-slate-900/5 border border-slate-200/50"
                 />
-                <svg className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                <svg className="absolute left-6 top-1/2 -translate-y-1/2 w-6 h-6 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+                </svg>
               </div>
-              <div className="flex flex-wrap gap-2">
+              
+              <div className="flex flex-wrap gap-2 pt-2 border-t border-slate-100">
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat}
                     onClick={() => setActiveTag(cat)}
-                    className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest border-2 transition-all ${activeTag === cat ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'}`}
+                    className={`px-5 py-2.5 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all border-2 ${
+                      activeTag === cat ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'
+                    }`}
                   >
                     {cat}
                   </button>
@@ -98,11 +113,11 @@ const App: React.FC = () => {
               </div>
             </section>
 
-            {/* Messaggio Fallback */}
+            {/* Messaggio Fallback Timeout (60s) */}
             {isFallback && (
               <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center gap-3">
                 <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                <p className="text-xs font-bold text-amber-800 uppercase tracking-tight">Il backend non risponde (Timeout 60s). Caricate notizie di backup.</p>
+                <p className="text-xs font-bold text-amber-800 uppercase tracking-tight">Connessione lenta o backend non disponibile (Timeout 60s). Caricate notizie di archivio.</p>
               </div>
             )}
 
@@ -114,7 +129,7 @@ const App: React.FC = () => {
                 filteredItems.map(item => <NewsCard key={item.id} item={item} />)
               ) : (
                 <div className="col-span-full py-20 text-center bg-white/50 rounded-[3rem] border border-dashed border-slate-200">
-                  <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">Nessuna notizia trovata</p>
+                  <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">Nessuna notizia trovata per questa ricerca</p>
                 </div>
               )}
             </div>
@@ -134,6 +149,9 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 ))}
+              </div>
+              <div className="mt-12 pt-8 border-t border-zinc-900">
+                <p className="text-[9px] font-black text-zinc-700 uppercase tracking-[0.4em]">Briefing Engine v1.0</p>
               </div>
             </div>
           </aside>

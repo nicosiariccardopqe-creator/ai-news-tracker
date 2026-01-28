@@ -4,7 +4,8 @@ import { MOCK_INITIAL_NEWS } from '../constants';
 
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 20000); // Timeout client aumentato
+  // Timeout impostato a 60 secondi come richiesto
+  const timeoutId = setTimeout(() => controller.abort(), 60000); 
 
   try {
     const query = params.tags?.[0] || 'AI news';
@@ -32,8 +33,9 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
-      // In caso di errore API, passiamo l'intero oggetto JSON come stringa per il debug nel frontend
-      throw new Error(JSON.stringify(result || { error: 'Unknown API Error', status: response.status }));
+      // In caso di errore API, restituiamo comunque il fallback con le news di default
+      console.warn('[NewsService] API Error, loading defaults...', result);
+      return createFallbackResponse('api-error', JSON.stringify(result));
     }
 
     let rawItems: any[] = [];
@@ -59,10 +61,11 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     };
   } catch (err: any) {
     clearTimeout(timeoutId);
-    console.error('[NewsService] Error:', err.message);
+    const isTimeout = err.name === 'AbortError';
+    console.error(`[NewsService] ${isTimeout ? 'Timeout (60s)' : 'Error'}:`, err.message);
     
-    // Passiamo l'errore serializzato nella versione sorgente per permettere al frontend di ispezionarlo
-    return createFallbackResponse('backend-failure', err.message);
+    // In caso di timeout o errore di rete, carichiamo le news di default
+    return createFallbackResponse(isTimeout ? 'timeout' : 'network-failure', err.message);
   }
 }
 

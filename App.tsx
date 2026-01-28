@@ -112,10 +112,11 @@ const App: React.FC = () => {
       setSourceVersion(response.source_version);
       setStatus(AppState.SUCCESS);
       
-      if (response.source_version.includes('fallback-backend-failure')) {
+      // Se il caricamento è un fallback critico (non solo dati vuoti), mostriamo il log
+      if (response.source_version.includes('fallback-api-error') || response.source_version.includes('fallback-network-failure')) {
         const errorPart = response.source_version.split('::')[1];
         try { setErrorDetails(JSON.parse(errorPart)); } catch { setErrorDetails({ message: errorPart }); }
-        setIsErrorModalOpen(true);
+        // Non apriamo il modal automaticamente per non interrompere l'utente se le mock news sono state caricate
       }
     } catch (error: any) {
       setStatus(AppState.ERROR);
@@ -138,7 +139,8 @@ const App: React.FC = () => {
     });
   }, [items, activeTag, searchQuery]);
 
-  const isLive = sourceVersion.includes('live') && !sourceVersion.includes('fallback');
+  const isLive = sourceVersion === 'backend-proxy-live';
+  const isFallback = sourceVersion.startsWith('fallback-');
 
   return (
     <div className="min-h-screen pb-12">
@@ -161,16 +163,20 @@ const App: React.FC = () => {
                     <span className="text-xl font-black text-slate-900 leading-none mb-1">Status Radar</span>
                     <span className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${isLive ? 'text-emerald-500' : 'text-amber-500'}`}>
                       <span className={`w-1.5 h-1.5 rounded-full bg-current ${isLive ? 'animate-pulse' : ''}`}></span>
-                      {isLive ? 'Connessione Live' : 'Dati Locali'}
+                      {isLive ? 'Connessione Live' : isFallback ? 'Dati di Backup' : 'Dati Locali'}
                     </span>
                   </div>
                </div>
-               <button onClick={() => handleRefresh()} disabled={isRefreshing} className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl active:scale-95">
+               <button 
+                 onClick={() => handleRefresh()} 
+                 disabled={isRefreshing} 
+                 className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white hover:bg-black'}`}
+               >
                  <svg className={`w-8 h-8 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                </button>
             </section>
 
-            {/* Ricerca e Filtri (Design Aggiornato) */}
+            {/* Ricerca e Filtri */}
             <section className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 card-shadow border border-white/50 space-y-6">
               <div className="relative w-full">
                 <input 
@@ -198,6 +204,24 @@ const App: React.FC = () => {
               </div>
             </section>
 
+            {/* Avviso Timeout/Fallback */}
+            {isFallback && (
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-amber-200 rounded-lg text-amber-700">
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+                  </div>
+                  <p className="text-xs font-bold text-amber-800 uppercase tracking-tight">Backend non raggiungibile. Visualizzazione notizie di archivio.</p>
+                </div>
+                <button 
+                  onClick={() => setIsErrorModalOpen(true)}
+                  className="text-[10px] font-black uppercase text-amber-600 hover:underline"
+                >
+                  Vedi Log Dettagliati
+                </button>
+              </div>
+            )}
+
             {/* Feed Notizie */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {status === AppState.LOADING ? (
@@ -217,7 +241,7 @@ const App: React.FC = () => {
             <div className="bg-[#0a0a0a] rounded-[2.5rem] p-10 text-white min-h-[600px] shadow-2xl sticky top-8 border border-white/5 overflow-hidden">
               <div className="flex justify-between items-center mb-10">
                 <h2 className="text-3xl font-black tracking-tighter">News Flow</h2>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 animate-ping"></span>
+                <span className={`w-2 h-2 rounded-full ${isLive ? 'bg-emerald-500 animate-ping' : 'bg-zinc-700'}`}></span>
               </div>
               <div className="space-y-6 max-h-[700px] overflow-y-auto no-scrollbar">
                 {items.slice(0, 15).map((item, i) => (

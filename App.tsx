@@ -1,8 +1,9 @@
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
-import { AppState, NewsItem } from './types';
+import { AppState, NewsItem, ErrorDetail } from './types';
 import { fetchNews } from './services/newsService';
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
+import DebugModal from './components/DebugModal';
 import { CATEGORIES } from './constants';
 
 const App: React.FC = () => {
@@ -12,20 +13,48 @@ const App: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sourceVersion, setSourceVersion] = useState<string>('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // Debug State
+  const [lastError, setLastError] = useState<ErrorDetail | null>(null);
+  const [isDebugOpen, setIsDebugOpen] = useState(false);
 
   const handleRefresh = useCallback(async (isInitial = false) => {
     if (isRefreshing && !isInitial) return;
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
+    const requestPayload = { tags: activeTag !== 'TUTTE' ? [activeTag] : [] };
+
     try {
-      const response = await fetchNews({ tags: activeTag !== 'TUTTE' ? [activeTag] : [] });
+      const response = await fetchNews(requestPayload);
       setItems(response.items);
       setSourceVersion(response.source_version);
       setStatus(AppState.SUCCESS);
-    } catch (error) {
+      
+      // Se abbiamo ricevuto un fallback (es. per timeout), catturiamo il dettaglio tecnico
+      if (response.source_version.includes('fallback-')) {
+        const reason = response.source_version.split('-')[1]?.split('::')[0] || 'unknown';
+        setLastError({
+          message: reason === 'timeout' 
+            ? "Il server ha impiegato più di 30 secondi. Caricate notizie di archivio." 
+            : `Dati di backup caricati. Origine: ${response.source_version}`,
+          timestamp: new Date().toISOString(),
+          payload: requestPayload,
+          type: 'API_WARNING',
+          stack: new Error().stack
+        });
+      }
+    } catch (error: any) {
       console.error("Errore durante il refresh:", error);
       setStatus(AppState.ERROR);
+      setLastError({
+        message: error.message || 'Errore di connessione sconosciuto',
+        stack: error.stack,
+        payload: requestPayload,
+        timestamp: new Date().toISOString(),
+        type: 'CRITICAL_ERROR'
+      });
+      setIsDebugOpen(true);
     } finally {
       setIsRefreshing(false);
     }
@@ -47,9 +76,10 @@ const App: React.FC = () => {
 
   const isLive = sourceVersion === 'backend-proxy-live';
   const isFallback = sourceVersion.startsWith('fallback-');
+  const isTimeout = sourceVersion.includes('fallback-timeout');
 
   return (
-    <div className="min-h-screen pb-12 animate-fade-in">
+    <div className="min-h-screen pb-12 animate-fade-in relative">
       <Navbar />
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-8">
@@ -58,32 +88,36 @@ const App: React.FC = () => {
             
             {/* Radar Status & Counter */}
             <section className="bg-white rounded-3xl p-8 card-shadow flex items-center justify-between border border-slate-100">
-               <div className="flex items-center gap-10">
+               <div className="flex items-center gap-4 sm:gap-10">
                   <div className="flex items-baseline gap-3">
-                    <span className="text-5xl font-black text-slate-900 tracking-tighter">{filteredItems.length}</span>
+                    <span className="text-4xl sm:text-5xl font-black text-slate-900 tracking-tighter">{filteredItems.length}</span>
                     <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risultati</span>
                   </div>
-                  <div className="w-px h-12 bg-slate-100"></div>
+                  <div className="w-px h-12 bg-slate-100 hidden sm:block"></div>
                   <div className="flex flex-col">
                     <span className="text-xl font-black text-slate-900 leading-none mb-1">Status Radar</span>
-                    <span className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${isLive ? 'text-emerald-500' : 'text-amber-500'}`}>
+                    <button 
+                      onClick={() => lastError && setIsDebugOpen(true)}
+                      className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-opacity ${isLive ? 'text-emerald-500' : 'text-amber-500'} ${lastError ? 'cursor-help hover:opacity-70' : ''}`}
+                    >
                       <span className={`w-1.5 h-1.5 rounded-full bg-current ${isLive ? 'animate-pulse' : ''}`}></span>
-                      {isLive ? 'Connessione Live' : 'Notizie di Archivio'}
-                    </span>
+                      {isLive ? 'Connessione Live' : isTimeout ? 'Timeout 30s' : 'Notizie Archivio'}
+                      {lastError && <span className="bg-amber-100 px-1.5 rounded text-[8px]">INFO</span>}
+                    </button>
                   </div>
                </div>
                <button 
                 onClick={() => handleRefresh()} 
                 disabled={isRefreshing} 
-                className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl active:scale-95 disabled:opacity-50"
+                className="w-14 h-14 sm:w-16 sm:h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl active:scale-95 disabled:opacity-50"
                >
-                 <svg className={`w-8 h-8 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                 <svg className={`w-6 h-6 sm:w-8 sm:h-8 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                  </svg>
                </button>
             </section>
 
-            {/* Barra di ricerca full width e Tag sotto */}
+            {/* Barra di ricerca e Tag */}
             <section className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 card-shadow border border-white/50 space-y-6">
               <div className="relative w-full">
                 <input 
@@ -113,11 +147,21 @@ const App: React.FC = () => {
               </div>
             </section>
 
-            {/* Messaggio Fallback Timeout (60s) */}
+            {/* Notifica Errore / Debug */}
             {isFallback && (
-              <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center gap-3">
-                <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
-                <p className="text-xs font-bold text-amber-800 uppercase tracking-tight">Connessione lenta o backend non disponibile (Timeout 60s). Caricate notizie di archivio.</p>
+              <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                  <p className="text-xs font-bold text-amber-800 uppercase tracking-tight">
+                    {isTimeout ? 'Server lento (Timeout 30s raggiunto). Visualizzazione notizie di archivio.' : 'Dati live non disponibili. Visualizzazione notizie di archivio.'}
+                  </p>
+                </div>
+                <button 
+                  onClick={() => setIsDebugOpen(true)}
+                  className="px-3 py-1 bg-amber-200/50 rounded-lg text-[10px] font-black text-amber-900 uppercase hover:bg-amber-300/50 transition-colors"
+                >
+                  Dettagli
+                </button>
               </div>
             )}
 
@@ -129,13 +173,13 @@ const App: React.FC = () => {
                 filteredItems.map(item => <NewsCard key={item.id} item={item} />)
               ) : (
                 <div className="col-span-full py-20 text-center bg-white/50 rounded-[3rem] border border-dashed border-slate-200">
-                  <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">Nessuna notizia trovata per questa ricerca</p>
+                  <p className="text-slate-400 font-bold uppercase tracking-widest text-sm">Nessuna notizia trovata</p>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Sidebar Flow */}
+          {/* Sidebar */}
           <aside className="w-full lg:w-[400px]">
             <div className="bg-[#0a0a0a] rounded-[2.5rem] p-10 text-white min-h-[600px] shadow-2xl sticky top-8 border border-white/5 overflow-hidden">
               <h2 className="text-3xl font-black tracking-tighter mb-10">News Flow</h2>
@@ -151,12 +195,18 @@ const App: React.FC = () => {
                 ))}
               </div>
               <div className="mt-12 pt-8 border-t border-zinc-900">
-                <p className="text-[9px] font-black text-zinc-700 uppercase tracking-[0.4em]">Briefing Engine v1.0</p>
+                <p className="text-[9px] font-black text-zinc-700 uppercase tracking-[0.4em]">Briefing Engine v2.1</p>
               </div>
             </div>
           </aside>
         </div>
       </main>
+
+      <DebugModal 
+        isOpen={isDebugOpen} 
+        onClose={() => setIsDebugOpen(false)} 
+        error={lastError} 
+      />
     </div>
   );
 };

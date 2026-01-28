@@ -1,11 +1,12 @@
+
 // src/services/newsService.ts
 import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   const controller = new AbortController();
-  // Timeout di 60 secondi
-  const timeoutId = setTimeout(() => controller.abort(), 60000); 
+  // Timeout ridotto a 30 secondi come richiesto
+  const timeoutId = setTimeout(() => controller.abort(), 30000); 
 
   try {
     const query = params.tags?.[0] || 'AI news';
@@ -32,7 +33,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
 
     if (!response.ok) {
       console.warn('[NewsService] API Error, loading defaults...');
-      return createFallbackResponse('api-error');
+      return createFallbackResponse('api-error', `Status: ${response.status}`);
     }
 
     const result = await response.json();
@@ -61,9 +62,9 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
   } catch (err: any) {
     clearTimeout(timeoutId);
     const isTimeout = err.name === 'AbortError';
-    console.error(`[NewsService] ${isTimeout ? 'Timeout (60s)' : 'Error'}:`, err.message);
+    console.error(`[NewsService] ${isTimeout ? 'Timeout (30s)' : 'Error'}:`, err.message);
     
-    // Fallback automatico alle news di default
+    // Fallback automatico alle news di default (MOCK_INITIAL_NEWS)
     return createFallbackResponse(isTimeout ? 'timeout' : 'network-failure', err.message);
   }
 }

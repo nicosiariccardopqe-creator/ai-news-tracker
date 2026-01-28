@@ -1,4 +1,3 @@
-
 export interface Source {
   name: string;
   domain: string;
@@ -23,6 +22,14 @@ export interface NewsItem {
   thumbnail?: string;
   language: string;
   score: NewsScore;
+}
+
+export interface ErrorDetail {
+  message: string;
+  stack?: string;
+  payload?: any;
+  timestamp: string;
+  type: string;
 }
 
 export interface NewsResponse {

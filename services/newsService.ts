@@ -3,13 +3,42 @@ import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
 /**
- * Servizio News semplificato. 
- * Rimosso il supporto a /api/mcp/news per operare in modalità locale/statica.
+ * Tenta di recuperare le news dal server primario.
+ * Se fallisce, solleva un errore per permettere il logging dello stack trace.
  */
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
-  // Simuliamo un leggero ritardo di caricamento per l'UX
-  await new Promise(resolve => setTimeout(resolve, 600));
+  const activeTag = params.tags?.[0] || 'TUTTE';
+  
+  try {
+    // TENTATIVO PRIMARIO: Chiamata al server MCP (simulata o reale)
+    // Usiamo un endpoint che probabilmente fallirà in locale per generare lo stack trace richiesto
+    const response = await fetch('/api/news/default', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+      signal: AbortSignal.timeout(2000) // Timeout rapido per testare il fallback
+    });
 
+    if (!response.ok) {
+      throw new Error(`Server MCP ha risposto con status ${response.status}`);
+    }
+
+    return await response.json();
+  } catch (error: any) {
+    // Se la chiamata fallisce, rilanciamo l'errore per il logger dell'App
+    // Ma alleghiamo una proprietà speciale per indicare che è un fallimento del "Default Provider"
+    const stackError = new Error(`[MCP_FAILURE] Impossibile recuperare news dal server primario: ${error.message}`);
+    (stackError as any).isProviderError = true;
+    (stackError as any).originalStack = error.stack;
+    throw stackError;
+  }
+}
+
+/**
+ * Caricamento di emergenza dai dati locali (Fallback)
+ */
+export async function fetchMockNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
+  await new Promise(resolve => setTimeout(resolve, 400));
   const activeTag = params.tags?.[0] || 'TUTTE';
   
   let filtered = MOCK_INITIAL_NEWS;
@@ -21,7 +50,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
 
   return {
     generated_at: new Date().toISOString(),
-    source_version: 'local-static-v1',
+    source_version: 'local-fallback-v1',
     items: dedupeAndSort(filtered),
     paging: { next_cursor: null, count: filtered.length }
   };

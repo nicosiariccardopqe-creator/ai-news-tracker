@@ -1,9 +1,10 @@
 
 import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { AppState, NewsItem, ErrorDetail } from './types';
-import { fetchNews } from './services/newsService';
+import { fetchNews, fetchMockNews } from './services/newsService';
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
+import DebugModal from './components/DebugModal';
 import { CATEGORIES } from './constants';
 
 const App: React.FC = () => {
@@ -12,19 +13,58 @@ const App: React.FC = () => {
   const [activeTag, setActiveTag] = useState('TUTTE');
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // Debug & Logging State
+  const [logHistory, setLogHistory] = useState<ErrorDetail[]>([]);
+  const [selectedLog, setSelectedLog] = useState<ErrorDetail | null>(null);
+  const [isDebugOpen, setIsDebugOpen] = useState(false);
+
+  const addLog = (message: string, type: string = 'INFO', payload: any = {}, stack?: string) => {
+    const newLog: ErrorDetail = {
+      message,
+      timestamp: new Date().toLocaleTimeString(),
+      type,
+      payload,
+      stack: stack || 'No stack trace available'
+    };
+    setLogHistory(prev => [newLog, ...prev].slice(0, 50));
+  };
 
   const handleRefresh = useCallback(async (isInitial = false) => {
     if (isRefreshing && !isInitial) return;
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
+    const requestPayload = { tags: activeTag !== 'TUTTE' ? [activeTag] : [] };
+    addLog(`Attempting Primary Fetch: ${activeTag}`, 'NETWORK', requestPayload);
+
     try {
-      const response = await fetchNews({ tags: activeTag !== 'TUTTE' ? [activeTag] : [] });
+      // TENTATIVO 1: Server MCP
+      const response = await fetchNews(requestPayload);
       setItems(response.items);
       setStatus(AppState.SUCCESS);
+      addLog(`Primary success: ${response.items.length} items.`, 'SUCCESS');
     } catch (error: any) {
-      console.error("Errore caricamento news:", error);
-      setStatus(AppState.ERROR);
+      // LOG DELLO STACK TRACE RICHIESTO
+      console.error("Critical Fetch Error:", error);
+      addLog(
+        `FAIL: ${error.message}`, 
+        'ERROR', 
+        { attempt: 'primary_mcp', payload: requestPayload }, 
+        error.stack || error.originalStack
+      );
+
+      // TENTATIVO 2: Fallback Locale
+      addLog("Initializing Local Fallback Engine...", 'SYSTEM');
+      try {
+        const fallbackResponse = await fetchMockNews(requestPayload);
+        setItems(fallbackResponse.items);
+        setStatus(AppState.SUCCESS);
+        addLog(`Fallback success: ${fallbackResponse.items.length} items loaded from cache.`, 'WARNING');
+      } catch (fallbackError: any) {
+        addLog("Critical System Failure: No data sources available.", 'FATAL', {}, fallbackError.stack);
+        setStatus(AppState.ERROR);
+      }
     } finally {
       setIsRefreshing(false);
     }
@@ -42,6 +82,11 @@ const App: React.FC = () => {
       return matchesSearch;
     });
   }, [items, searchQuery]);
+
+  const openLogDetails = (log: ErrorDetail) => {
+    setSelectedLog(log);
+    setIsDebugOpen(true);
+  };
 
   return (
     <div className="min-h-screen pb-12 animate-fade-in relative">
@@ -63,7 +108,7 @@ const App: React.FC = () => {
                     <span className="text-xl font-black text-slate-900 leading-none mb-1">AI Radar</span>
                     <div className="text-[10px] font-black uppercase tracking-widest flex items-center gap-2 text-emerald-500">
                       <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
-                      Aggiornato in Tempo Reale
+                      Hybrid Engine Active
                     </div>
                   </div>
                </div>
@@ -120,6 +165,63 @@ const App: React.FC = () => {
                 </div>
               )}
             </div>
+
+            {/* GRAFICA LOG: System Terminal */}
+            <section className="bg-zinc-950 rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12 group">
+              <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex justify-between items-center">
+                <div className="flex items-center gap-3">
+                  <div className="flex gap-1.5">
+                    <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/40"></div>
+                    <div className="w-3 h-3 rounded-full bg-amber-500/20 border border-amber-500/40"></div>
+                    <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
+                  </div>
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] ml-4">System Live Terminal</span>
+                </div>
+                <div className="flex items-center gap-4">
+                  <div className="h-4 w-px bg-white/10"></div>
+                  <span className="text-[10px] font-bold text-emerald-500 animate-pulse uppercase tracking-widest">Stack Tracer Active</span>
+                </div>
+              </div>
+              <div className="p-6 h-[300px] overflow-y-auto font-mono text-[11px] leading-relaxed no-scrollbar bg-black/40">
+                {logHistory.length > 0 ? (
+                  logHistory.map((log, i) => (
+                    <div 
+                      key={i} 
+                      onClick={() => openLogDetails(log)}
+                      className="flex gap-4 py-1.5 hover:bg-white/5 cursor-pointer px-2 rounded transition-colors group/line border-b border-white/5 last:border-0"
+                    >
+                      <span className="text-zinc-600 shrink-0">[{log.timestamp}]</span>
+                      <span className={`font-bold shrink-0 w-20 ${
+                        log.type === 'ERROR' || log.type === 'FATAL' ? 'text-red-500' : 
+                        log.type === 'SUCCESS' ? 'text-emerald-500' : 
+                        log.type === 'WARNING' ? 'text-amber-500' : 
+                        log.type === 'NETWORK' ? 'text-blue-500' : 'text-zinc-400'
+                      }`}>
+                        {log.type}
+                      </span>
+                      <span className="text-zinc-300 group-hover/line:text-white truncate max-w-[500px]">{log.message}</span>
+                      {log.stack !== 'No stack trace available' && (
+                        <span className="bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded text-[8px] font-black uppercase ml-2 border border-red-500/20">
+                          View Stack
+                        </span>
+                      )}
+                      <span className="ml-auto text-zinc-700 opacity-0 group-hover/line:opacity-100 transition-opacity uppercase font-black text-[8px]">Details +</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="h-full flex items-center justify-center">
+                    <p className="text-zinc-800 uppercase tracking-[0.5em] font-black">Initializing Logs...</p>
+                  </div>
+                )}
+              </div>
+              <div className="px-8 py-3 bg-zinc-900/30 border-t border-white/5 flex items-center gap-4">
+                <div className="flex items-center gap-2 text-zinc-600 text-[9px] font-bold uppercase">
+                  <span>Provider status:</span>
+                  <span className="text-red-500/80">MCP Offline (Fallback Active)</span>
+                </div>
+              </div>
+            </section>
+
           </div>
 
           {/* Sidebar */}
@@ -137,13 +239,16 @@ const App: React.FC = () => {
                   </div>
                 ))}
               </div>
-              <div className="mt-12 pt-8 border-t border-zinc-900">
-                <p className="text-[9px] font-black text-zinc-700 uppercase tracking-[0.4em]">Standalone Edition v3.0</p>
-              </div>
             </div>
           </aside>
         </div>
       </main>
+
+      <DebugModal 
+        isOpen={isDebugOpen} 
+        onClose={() => setIsDebugOpen(false)} 
+        error={selectedLog} 
+      />
     </div>
   );
 };

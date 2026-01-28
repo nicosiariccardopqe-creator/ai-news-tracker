@@ -9,7 +9,7 @@ import { MOCK_INITIAL_NEWS } from '../constants';
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   try {
     const query = params.tags?.[0] || 'AI news';
-    const LOCAL_API_URL = '/api/mcp/news';
+    const LOCAL_API_URL = '/mcp/news';
 
     console.debug(`[NewsService] Fetching from Backend: ${LOCAL_API_URL}`);
 

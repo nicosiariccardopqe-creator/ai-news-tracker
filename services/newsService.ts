@@ -3,6 +3,9 @@ import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 secondi timeout client-side
+
   try {
     const query = params.tags?.[0] || 'AI news';
     const LOCAL_API_URL = '/api/mcp/news';
@@ -20,19 +23,17 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     const response = await fetch(LOCAL_API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(mcpRequest)
+      body: JSON.stringify(mcpRequest),
+      signal: controller.signal
     });
+
+    clearTimeout(timeoutId);
 
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
       const errorMsg = result?.message || result?.error || 'Errore Sconosciuto';
-      const details = result?.details ? (typeof result.details === 'string' ? result.details : JSON.stringify(result.details)) : '';
-      throw new Error(`${errorMsg} ${details}`);
-    }
-
-    if (result?.error) {
-      throw new Error(result.error.message || JSON.stringify(result.error));
+      throw new Error(`${errorMsg}`);
     }
 
     let rawItems: any[] = [];
@@ -57,7 +58,8 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
       paging: { next_cursor: null, count: rawItems.length }
     };
   } catch (err: any) {
-    console.error('[NewsService] Error:', err.message);
+    clearTimeout(timeoutId);
+    console.error('[NewsService] Error:', err.name === 'AbortError' ? 'Timeout' : err.message);
     return createFallbackResponse('backend-failure', err.message);
   }
 }

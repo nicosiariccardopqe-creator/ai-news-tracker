@@ -51,7 +51,7 @@ app.post('/api/mcp/news', async (req, res) => {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 45000);
+    const timeout = setTimeout(() => controller.abort(), 30000); // 30 secondi timeout interno
 
     const formattedToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
 
@@ -83,10 +83,10 @@ app.post('/api/mcp/news', async (req, res) => {
 
   } catch (error) {
     console.error('[FETCH ERROR]:', error.message);
-    res.status(502).json({ 
-      error: 'Connessione Fallita', 
-      message: 'Impossibile raggiungere n8n. Controlla l\'URL.',
-      details: error.message 
+    const status = error.name === 'AbortError' ? 504 : 502;
+    res.status(status).json({ 
+      error: status === 504 ? 'Timeout' : 'Connessione Fallita', 
+      message: error.message 
     });
   }
 });

@@ -31,9 +31,8 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.warn('[NewsService] API Error, loading defaults...', errorData);
-      return createFallbackResponse('api-error', JSON.stringify(errorData));
+      console.warn('[NewsService] API Error, loading defaults...');
+      return createFallbackResponse('api-error');
     }
 
     const result = await response.json();
@@ -64,7 +63,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     const isTimeout = err.name === 'AbortError';
     console.error(`[NewsService] ${isTimeout ? 'Timeout (60s)' : 'Error'}:`, err.message);
     
-    // In caso di errore o timeout, carica sempre le news di default
+    // Fallback automatico alle news di default
     return createFallbackResponse(isTimeout ? 'timeout' : 'network-failure', err.message);
   }
 }

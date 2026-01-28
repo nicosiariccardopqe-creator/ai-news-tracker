@@ -7,6 +7,7 @@ import NewsCard from './components/NewsCard';
 import DebugModal from './components/DebugModal';
 import { CATEGORIES } from './constants';
 
+
 const App: React.FC = () => {
   const [items, setItems] = useState<NewsItem[]>([]);
   const [status, setStatus] = useState<AppState>(AppState.IDLE);
@@ -35,9 +36,9 @@ const App: React.FC = () => {
       const fallbackResponse = await fetchMockNews(payload);
       setItems(fallbackResponse.items);
       setStatus(AppState.SUCCESS);
-      addLog(`Success: System restored using default local dataset.`, 'WARNING');
+      addLog(`Fallback: Caricati dati locali predefiniti.`, 'WARNING');
     } catch (fallbackError: any) {
-      addLog("FATAL: All data providers unreachable.", 'FATAL', {}, fallbackError.stack);
+      addLog("ERRORE FATALE: Nessun provider dati raggiungibile.", 'FATAL', {}, fallbackError.stack);
       setStatus(AppState.ERROR);
     }
   };
@@ -47,50 +48,54 @@ const App: React.FC = () => {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    // Configurazione chiamata MCP
-    const requestPayload = { tags: [] }; 
-    const activeTools = ['news_fetcher_v1']; // Definizione tools utilizzati per la connessione MCP
-    const payloadStr = JSON.stringify(requestPayload);
+    // Configurazione dati per log - Tool aggiornato a NewsAI
+    const requestParams = { tags: [] }; 
+    const activeTools = ['NewsAI'];
+    const fullPayload = {
+      method: "NewsAI",
+      params: requestParams
+    };
+    
+    const payloadStr = JSON.stringify(fullPayload);
     const toolsStr = activeTools.join(', ');
     
-    // Log completo richiesto: URL, Tools, Payload
-    addLog(`CALL MCP [${MCP_ENDPOINT}] | TOOLS: [${toolsStr}] | PAYLOAD: ${payloadStr}`, 'NETWORK', { 
-      url: MCP_ENDPOINT, 
+    // Log completo: URL, Tools e Payload come richiesto
+    addLog(`POST ${MCP_ENDPOINT} | TOOLS: [${toolsStr}] | PAYLOAD: ${payloadStr}`, 'NETWORK', { 
+      fullUrl: MCP_ENDPOINT, 
       tools: activeTools, 
-      payload: requestPayload 
+      payload: fullPayload 
     });
 
     try {
-      // TENTATIVO 1: Server MCP (Primary)
-      const response = await fetchNews(requestPayload);
+      const response = await fetchNews(requestParams);
       setItems(response.items);
       setStatus(AppState.SUCCESS);
-      addLog(`HTTP 200 OK: Data synced from ${MCP_ENDPOINT} using ${toolsStr}.`, 'SUCCESS');
+      addLog(`SUCCESS [200]: Sync completato con ${MCP_ENDPOINT}. Ricevuti ${response.items.length} articoli tramite ${toolsStr}.`, 'SUCCESS');
     } catch (error: any) {
-      console.error("MCP Connection Error:", error);
+      console.error("MCP Sync Error:", error);
       addLog(
-        `SYNC FAIL: [${MCP_ENDPOINT}] - ${error.message}`, 
+        `SYNC FAIL: ${error.message}`, 
         'ERROR', 
-        { url: MCP_ENDPOINT, tools: activeTools, payload: requestPayload }, 
+        { endpoint: MCP_ENDPOINT, tools: activeTools, sentPayload: fullPayload }, 
         error.stack || error.originalStack
       );
 
-      addLog("Initializing local engine fallback...", 'SYSTEM');
-      await loadFallback(requestPayload);
+      addLog("Avvio procedura di fallback su motore locale...", 'SYSTEM');
+      await loadFallback(requestParams);
     } finally {
       setIsRefreshing(false);
     }
   }, [isRefreshing]);
 
   const handleForceDefault = async () => {
-    addLog("MANUAL OVERRIDE: User requested local dataset loading.", 'OVERRIDE');
+    addLog("OVERRIDE MANUALE: Forza caricamento dataset locale.", 'OVERRIDE');
     setIsRefreshing(false);
     await loadFallback({ tags: [] });
   };
 
   const handleTagClick = (tag: string) => {
     setActiveTag(tag);
-    addLog(`Local Filter Applied: ${tag}`, 'INFO', { tag });
+    addLog(`Filtro Locale: Visualizzazione categoria "${tag}"`, 'INFO', { tag });
   };
 
   const filteredItems = useMemo(() => {
@@ -119,7 +124,7 @@ const App: React.FC = () => {
         <div className="flex flex-col lg:flex-row gap-8 items-start">
           <div className="flex-1 w-full space-y-6">
             
-            {/* News Header & Counter */}
+            {/* Header News */}
             <section className="bg-white rounded-3xl p-8 card-shadow flex items-center justify-between border border-slate-100">
                <div className="flex items-center gap-4 sm:gap-10">
                   <div className="flex items-baseline gap-3">
@@ -131,7 +136,7 @@ const App: React.FC = () => {
                     <span className="text-xl font-black text-slate-900 leading-none mb-1">AI Radar</span>
                     <div className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${status === AppState.IDLE ? 'text-slate-400' : 'text-emerald-500'}`}>
                       <span className={`w-1.5 h-1.5 rounded-full bg-current ${status === AppState.LOADING ? 'animate-ping' : ''}`}></span>
-                      {status === AppState.IDLE ? 'System Ready' : 'Engine Active'}
+                      {status === AppState.IDLE ? 'Sistema Pronto' : 'Motore Attivo'}
                     </div>
                   </div>
                </div>
@@ -143,14 +148,14 @@ const App: React.FC = () => {
                       className="hidden sm:flex px-6 items-center gap-3 bg-amber-500 hover:bg-amber-400 text-black rounded-2xl transition-all shadow-lg shadow-amber-500/20 active:scale-95 group"
                     >
                       <span className="w-2 h-2 bg-black rounded-full animate-ping"></span>
-                      <span className="text-[10px] font-black uppercase tracking-widest">Force Local</span>
+                      <span className="text-[10px] font-black uppercase tracking-widest">Forza Locale</span>
                     </button>
                  )}
                  <button 
                   onClick={handleRefresh} 
                   disabled={isRefreshing} 
                   className="w-14 h-14 sm:w-16 sm:h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={isRefreshing ? "Syncing..." : "Sync News"}
+                  title={isRefreshing ? "Sincronizzazione..." : "Sincronizza News"}
                  >
                    <svg className={`w-6 h-6 sm:w-8 sm:h-8 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -159,7 +164,7 @@ const App: React.FC = () => {
                </div>
             </section>
 
-            {/* Filters & Search */}
+            {/* Filtri & Ricerca */}
             <section className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 card-shadow border border-white/50 space-y-6">
               <div className="relative w-full">
                 <input 
@@ -189,7 +194,7 @@ const App: React.FC = () => {
               </div>
             </section>
 
-            {/* Feed Grid */}
+            {/* Feed News */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               {status === AppState.LOADING ? (
                 [1,2,3,4].map(i => <div key={i} className="h-64 bg-white/40 animate-pulse rounded-3xl border border-slate-100"></div>)
@@ -206,14 +211,14 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">
-                    {status === AppState.IDLE ? "Avvia la scansione per visualizzare le news" : "Nessuna notizia trovata con i filtri attuali"}
+                    {status === AppState.IDLE ? "Esegui sync per visualizzare le news" : "Nessuna notizia corrisponde ai filtri"}
                   </p>
                 </div>
               )}
             </div>
 
-            {/* GRAFICA LOG: System Terminal */}
-            <section className="bg-zinc-950 rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12 group">
+            {/* Terminale di Sistema (Logs) */}
+            <section className="bg-[#0c0c0c] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12 group">
               <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex justify-between items-center">
                 <div className="flex items-center gap-3">
                   <div className="flex gap-1.5">
@@ -221,11 +226,12 @@ const App: React.FC = () => {
                     <div className="w-3 h-3 rounded-full bg-amber-500/20 border border-amber-500/40"></div>
                     <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
                   </div>
-                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] ml-4">System Live Terminal</span>
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] ml-4">Monitoraggio Canale MCP</span>
                 </div>
                 <div className="flex items-center gap-4">
+                  <span className="text-[9px] font-mono text-zinc-600 truncate max-w-[200px] hidden sm:block">{MCP_ENDPOINT}</span>
                   <div className="h-4 w-px bg-white/10"></div>
-                  <span className="text-[10px] font-bold text-emerald-500 animate-pulse uppercase tracking-widest">Log Monitoring Active</span>
+                  <span className="text-[10px] font-bold text-emerald-500 animate-pulse uppercase tracking-widest">Live</span>
                 </div>
               </div>
               <div className="p-6 h-[300px] overflow-y-auto font-mono text-[11px] leading-relaxed no-scrollbar bg-black/40">
@@ -234,48 +240,44 @@ const App: React.FC = () => {
                     <div 
                       key={i} 
                       onClick={() => openLogDetails(log)}
-                      className="flex gap-4 py-1.5 hover:bg-white/5 cursor-pointer px-2 rounded transition-colors group/line border-b border-white/5 last:border-0"
+                      className="flex flex-col sm:flex-row gap-2 sm:gap-4 py-2 hover:bg-white/5 cursor-pointer px-2 rounded transition-colors group/line border-b border-white/5 last:border-0"
                     >
-                      <span className="text-zinc-600 shrink-0">[{log.timestamp}]</span>
-                      <span className={`font-bold shrink-0 w-20 ${
-                        log.type === 'ERROR' || log.type === 'FATAL' ? 'text-red-500' : 
-                        log.type === 'SUCCESS' ? 'text-emerald-500' : 
-                        log.type === 'WARNING' || log.type === 'OVERRIDE' ? 'text-amber-500' : 
-                        log.type === 'NETWORK' ? 'text-blue-500' : 'text-zinc-400'
-                      }`}>
-                        {log.type}
-                      </span>
-                      <span className="text-zinc-300 group-hover/line:text-white truncate max-w-[500px]">{log.message}</span>
-                      {log.stack !== 'No stack trace available' && (
-                        <span className="bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded text-[8px] font-black uppercase ml-2 border border-red-500/20 animate-pulse">
-                          Stack Info
+                      <div className="flex shrink-0 gap-3">
+                        <span className="text-zinc-600">[{log.timestamp}]</span>
+                        <span className={`font-bold w-20 ${
+                          log.type === 'ERROR' || log.type === 'FATAL' ? 'text-red-500' : 
+                          log.type === 'SUCCESS' ? 'text-emerald-500' : 
+                          log.type === 'WARNING' || log.type === 'OVERRIDE' ? 'text-amber-500' : 
+                          log.type === 'NETWORK' ? 'text-blue-500' : 'text-zinc-400'
+                        }`}>
+                          {log.type}
                         </span>
-                      )}
-                      <span className="ml-auto text-zinc-700 opacity-0 group-hover/line:opacity-100 transition-opacity uppercase font-black text-[8px]">Inspect +</span>
+                      </div>
+                      <span className="text-zinc-300 group-hover/line:text-white break-all">{log.message}</span>
+                      <div className="ml-auto opacity-0 group-hover/line:opacity-100 transition-opacity flex gap-2">
+                        {log.stack !== 'No stack trace available' && (
+                          <span className="bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded text-[8px] font-black uppercase border border-red-500/20">Stack</span>
+                        )}
+                        <span className="text-zinc-700 uppercase font-black text-[8px] self-center">Inspect +</span>
+                      </div>
                     </div>
                   ))
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center opacity-40">
-                    <p className="text-zinc-400 uppercase tracking-[0.5em] font-black mb-2 animate-pulse">Waiting for commands...</p>
-                    <p className="text-zinc-700 text-[10px] font-mono uppercase tracking-widest">Telemetry stream idle</p>
+                    <p className="text-zinc-400 uppercase tracking-[0.5em] font-black mb-2 animate-pulse">Stream Telemetria Inattivo</p>
+                    <p className="text-zinc-700 text-[10px] font-mono uppercase tracking-widest">In attesa di sincronizzazione con il server MCP</p>
                   </div>
                 )}
               </div>
               <div className="px-8 py-3 bg-zinc-900/30 border-t border-white/5 flex justify-between items-center">
                 <div className="flex items-center gap-2 text-zinc-600 text-[9px] font-bold uppercase">
-                  <span>Connection:</span>
-                  <span className={status === AppState.IDLE ? 'text-zinc-500' : 'text-emerald-500'}>
-                    {status === AppState.IDLE ? 'Offline' : 'Active Channel'}
-                  </span>
+                  <span>Target:</span>
+                  <span className="text-emerald-500/80">RENDER_PROXY_MCP</span>
                 </div>
                 {isRefreshing && (
-                  <button 
-                    onClick={handleForceDefault}
-                    className="text-amber-500 text-[9px] font-black uppercase tracking-widest hover:underline animate-pulse flex items-center gap-2"
-                  >
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                    Emergency Local Override
-                  </button>
+                  <span className="text-amber-500 text-[9px] font-black uppercase tracking-widest animate-pulse">
+                    Streaming data from Render...
+                  </span>
                 )}
               </div>
             </section>
@@ -285,7 +287,7 @@ const App: React.FC = () => {
           {/* Sidebar */}
           <aside className="w-full lg:w-[400px]">
             <div className="bg-[#0a0a0a] rounded-[2.5rem] p-10 text-white min-h-[600px] shadow-2xl sticky top-8 border border-white/5 overflow-hidden">
-              <h2 className="text-3xl font-black tracking-tighter mb-10">Trending Now</h2>
+              <h2 className="text-3xl font-black tracking-tighter mb-10">Trending AI</h2>
               <div className="space-y-6 max-h-[700px] overflow-y-auto no-scrollbar">
                 {items.length > 0 ? (
                   items.slice(0, 10).map((item, i) => (
@@ -298,7 +300,7 @@ const App: React.FC = () => {
                     </div>
                   ))
                 ) : (
-                  <p className="text-zinc-700 text-xs font-bold uppercase tracking-widest text-center mt-20">No trends available</p>
+                  <p className="text-zinc-700 text-xs font-bold uppercase tracking-widest text-center mt-20">Nessun trend caricato</p>
                 )}
               </div>
             </div>

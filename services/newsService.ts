@@ -28,7 +28,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
         throw new Error(`406: Il server n8n richiede header Accept specifici (json + json-rpc).`);
       }
       if (response.status === 404) {
-        throw new Error(`404: Endpoint non trovato su n8n. Verifica se il path è '/mcp/http' o '/mcp-server/http'.`);
+        throw new Error(`404: Endpoint non trovato su n8n. Il proxy ha tentato di contattare la root del server. Verifica se l'istanza n8n su Render è attiva.`);
       }
       throw new Error(`Server Error ${response.status}: ${errorText.substring(0, 100)}`);
     }

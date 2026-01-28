@@ -9,7 +9,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
 
-  // Il token viene usato solo lato server dal proxy di Vite
+  // Token per l'autenticazione n8n MCP
   const mcpToken = env.MCP_TOKEN || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJlMWE5NjRkZi02ZDMzLTRkZGUtOTI3Yi05NGQ0ZjMwNmM1Y2YiLCJpc3MiOiJuOG4iLCJhdWQiOiJtY3Atc2VydmVyLWFwaSIsImp0aSI6ImQzMjdmNzkxLTExOWMtNDUzYi1iNmU0LWM4MWFhNGE3MzNkZSIsImlhdCI6MTc2OTUyMzU4N30.7u2MS7h9dhEIQ6LaOciT8xvYUxmeLoRYS4Mw_t9K2C0';
 
   return {
@@ -22,10 +22,10 @@ export default defineConfig(({ mode }) => {
           target: 'https://docker-n8n-xngg.onrender.com',
           changeOrigin: true,
           secure: true,
-          // Utilizziamo /mcp/http (o /mcp-server/http se necessario)
-          rewrite: () => '/mcp/http',
+          // Rimosso il rewrite esterno per gestire tutto via proxyReq per precisione assoluta
           configure: (proxy: any) => {
             proxy.on('proxyReq', (proxyReq: any, req: any) => {
+              // Estraiamo la query per il payload MCP
               let searchQuery = 'AI news';
               try {
                 const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
@@ -34,17 +34,21 @@ export default defineConfig(({ mode }) => {
                 searchQuery = 'AI news';
               }
 
+              // Configurazione richiesta POST verso n8n MCP
               proxyReq.method = 'POST';
+              
+              // Spesso sui server dedicati Render l'MCP bridge risponde sulla root '/'
+              // Se '/mcp/http' ha dato problemi, forziamo la root qui
+              proxyReq.path = '/'; 
+              
               proxyReq.setHeader('Authorization', `Bearer ${mcpToken}`);
               proxyReq.setHeader('Content-Type', 'application/json');
-              
-              // CRITICO: Risoluzione Errore 406
-              // Il server richiede esplicitamente entrambi i tipi MIME
+              // Risoluzione errore 406: accettiamo entrambi i tipi richiesti dal server
               proxyReq.setHeader('Accept', 'application/json, application/json-rpc');
 
               const mcpRequest = {
                 jsonrpc: '2.0',
-                id: `ui_${Date.now()}`,
+                id: `req_${Date.now()}`,
                 method: 'tools/call',
                 params: {
                   name: 'get_ai_news',
@@ -64,7 +68,7 @@ export default defineConfig(({ mode }) => {
             });
 
             proxy.on('error', (err: any, _req: any, res: any) => {
-              console.error('[ViteProxy] Errore:', err.message);
+              console.error('[ViteProxy] Errore critico:', err.message);
               if (!res.headersSent) {
                 res.writeHead(502, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: 'Proxy Failure', details: err.message }));
@@ -83,10 +87,10 @@ export default defineConfig(({ mode }) => {
           target: 'https://docker-n8n-xngg.onrender.com',
           changeOrigin: true,
           secure: true,
-          rewrite: () => '/mcp/http',
           configure: (proxy: any) => {
             proxy.on('proxyReq', (proxyReq: any, req: any) => {
               proxyReq.method = 'POST';
+              proxyReq.path = '/';
               proxyReq.setHeader('Authorization', `Bearer ${mcpToken}`);
               proxyReq.setHeader('Content-Type', 'application/json');
               proxyReq.setHeader('Accept', 'application/json, application/json-rpc');

@@ -3,6 +3,7 @@ import { NewsItem } from './types';
 
 export const CATEGORIES = [
   'TUTTE',
+  'NUOVI MODELLI',
   'MACHINE LEARNING',
   'ETICA AI',
   'REGOLAMENTAZIONE',

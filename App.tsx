@@ -30,40 +30,6 @@ const App: React.FC = () => {
     setLogHistory(prev => [newLog, ...prev].slice(0, 50));
   };
 
-  const handleRefresh = useCallback(async (isInitial = false) => {
-    if (isRefreshing) return;
-    setIsRefreshing(true);
-    setStatus(AppState.LOADING);
-    
-    const requestPayload = { tags: activeTag !== 'TUTTE' ? [activeTag] : [] };
-    addLog(`Initiating primary fetch sequence: ${activeTag}`, 'NETWORK', requestPayload);
-
-    try {
-      // TENTATIVO 1: Server MCP (Primary)
-      const response = await fetchNews(requestPayload);
-      setItems(response.items);
-      setStatus(AppState.SUCCESS);
-      addLog(`Primary connection established: ${response.items.length} records retrieved.`, 'SUCCESS');
-    } catch (error: any) {
-      // LOG DELLO STACK TRACE RICHIESTO IN CASO DI FALLIMENTO MCP
-      console.error("MCP Connection Error:", error);
-      addLog(
-        `CRITICAL: ${error.message}`, 
-        'ERROR', 
-        { provider: 'mcp_server', action: 'fetch_news' }, 
-        error.stack || error.originalStack
-      );
-
-      // Se non è stato interrotto manualmente, proviamo il fallback automatico
-      if (status !== AppState.SUCCESS) {
-        addLog("Switching to local data engine...", 'SYSTEM');
-        await loadFallback(requestPayload);
-      }
-    } finally {
-      setIsRefreshing(false);
-    }
-  }, [activeTag, isRefreshing, status]);
-
   const loadFallback = async (payload: any) => {
     try {
       const fallbackResponse = await fetchMockNews(payload);
@@ -76,22 +42,62 @@ const App: React.FC = () => {
     }
   };
 
+  const handleRefresh = useCallback(async () => {
+    if (isRefreshing) return;
+    setIsRefreshing(true);
+    setStatus(AppState.LOADING);
+    
+    // Al refresh carichiamo tutto per permettere il filtraggio locale completo
+    const requestPayload = { tags: [] }; 
+    addLog(`Initiating primary fetch sequence (Full Sync)`, 'NETWORK', requestPayload);
+
+    try {
+      // TENTATIVO 1: Server MCP (Primary)
+      const response = await fetchNews(requestPayload);
+      setItems(response.items);
+      setStatus(AppState.SUCCESS);
+      addLog(`Primary connection established: ${response.items.length} records retrieved.`, 'SUCCESS');
+    } catch (error: any) {
+      console.error("MCP Connection Error:", error);
+      addLog(
+        `CRITICAL: ${error.message}`, 
+        'ERROR', 
+        { provider: 'mcp_server', action: 'fetch_news' }, 
+        error.stack || error.originalStack
+      );
+
+      addLog("Switching to local data engine...", 'SYSTEM');
+      await loadFallback(requestPayload);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [isRefreshing]);
+
   const handleForceDefault = async () => {
-    // Interrompe il processo di refresh primario e carica i default
     addLog("MANUAL INTERRUPT: User triggered 'Force Local' override.", 'OVERRIDE');
-    setIsRefreshing(false); // Sblocca immediatamente i pulsanti
-    const requestPayload = { tags: activeTag !== 'TUTTE' ? [activeTag] : [] };
-    await loadFallback(requestPayload);
+    setIsRefreshing(false);
+    await loadFallback({ tags: [] });
+  };
+
+  const handleTagClick = (tag: string) => {
+    setActiveTag(tag);
+    addLog(`UI Filter: Category changed to ${tag} (Local Filter Only)`, 'INFO', { tag });
   };
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
+      // Filtro ricerca testuale
       const matchesSearch = searchQuery === '' || 
         (item.title && item.title.toLowerCase().includes(searchQuery.toLowerCase())) || 
         (item.summary && item.summary.toLowerCase().includes(searchQuery.toLowerCase()));
-      return matchesSearch;
+      
+      // Filtro Tag Locale (Richiesto: Solo filtro, no sincronizzazione)
+      const matchesTag = activeTag === 'TUTTE' || 
+        (item.tags && item.tags.some(t => t.toUpperCase() === activeTag.toUpperCase()));
+
+      return matchesSearch && matchesTag;
     });
-  }, [items, searchQuery]);
+  }, [items, searchQuery, activeTag]);
 
   const openLogDetails = (log: ErrorDetail) => {
     setSelectedLog(log);
@@ -134,7 +140,7 @@ const App: React.FC = () => {
                     </button>
                  )}
                  <button 
-                  onClick={() => handleRefresh()} 
+                  onClick={handleRefresh} 
                   disabled={isRefreshing} 
                   className="w-14 h-14 sm:w-16 sm:h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                   title={isRefreshing ? "Searching..." : "Refresh News"}
@@ -165,9 +171,8 @@ const App: React.FC = () => {
                 {CATEGORIES.map(cat => (
                   <button
                     key={cat}
-                    onClick={() => setActiveTag(cat)}
-                    disabled={isRefreshing}
-                    className={`px-5 py-2.5 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all border-2 disabled:opacity-50 ${
+                    onClick={() => handleTagClick(cat)}
+                    className={`px-5 py-2.5 rounded-xl text-[10px] font-black tracking-widest uppercase transition-all border-2 ${
                       activeTag === cat ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300'
                     }`}
                   >
@@ -194,7 +199,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">
-                    {status === AppState.IDLE ? "Avvia la scansione per visualizzare le news" : "Nessuna notizia trovata"}
+                    {status === AppState.IDLE ? "Avvia la scansione per visualizzare le news" : "Nessuna notizia trovata con i filtri attuali"}
                   </p>
                 </div>
               )}

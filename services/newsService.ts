@@ -9,7 +9,8 @@ import { MOCK_INITIAL_NEWS } from '../constants';
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   try {
     const query = params.tags?.[0] || 'AI news';
-    const LOCAL_API_URL = '/mcp/news';
+    // Allineato all'endpoint definito nel server.js e nel proxy di vite.config.ts
+    const LOCAL_API_URL = '/api/mcp/news';
 
     console.debug(`[NewsService] Fetching from Backend: ${LOCAL_API_URL}`);
 
@@ -55,6 +56,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
           const parsed = JSON.parse(textPart.text);
           rawItems = Array.isArray(parsed) ? parsed : (parsed.items || parsed.news || []);
         } catch (e) {
+          console.error('[NewsService] JSON parse error on content.text:', e);
           rawItems = [];
         }
       }
@@ -63,6 +65,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     }
 
     if (!rawItems.length) {
+      console.warn('[NewsService] No items in response');
       return createFallbackResponse('empty-result');
     }
 

@@ -11,7 +11,7 @@ const PORT = process.env.PORT || 4000;
 
 app.use(express.json());
 
-// Logger per il monitoraggio delle richieste
+// Logger per monitoraggio
 app.use((req, res, next) => {
   if (!req.url.startsWith('/assets')) {
     console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
@@ -19,34 +19,34 @@ app.use((req, res, next) => {
   next();
 });
 
-// Endpoint di Health Check e Debug
+// Health Check per Render
 app.get('/api/health', (req, res) => {
-  try {
-    res.json({ 
-      status: 'ok', 
-      timestamp: new Date().toISOString(),
-      node_version: process.version,
-      config: {
-        hasToken: !!process.env.MCP_TOKEN,
-        tokenPrefix: process.env.MCP_TOKEN ? process.env.MCP_TOKEN.substring(0, 10) + '...' : 'null',
-        targetUrl: process.env.N8N_MCP_URL || 'https://docker-n8n-xngg.onrender.com/mcp-server/http'
-      }
-    });
-  } catch (err) {
-    res.status(500).json({ error: 'Health check failed', details: err.message });
-  }
+  res.json({ 
+    status: 'ok', 
+    timestamp: new Date().toISOString(),
+    node_version: process.version,
+    config: {
+      hasToken: !!process.env.MCP_TOKEN,
+      targetUrl: process.env.N8N_MCP_URL || 'https://docker-n8n-xngg.onrender.com/mcp-server/http'
+    }
+  });
 });
 
-// Endpoint proxy principale
+// Proxy verso n8n
 app.post('/api/mcp/news', async (req, res) => {
   const targetUrl = process.env.N8N_MCP_URL || 'https://docker-n8n-xngg.onrender.com/mcp-server/http';
   const token = process.env.MCP_TOKEN;
+  const requestBody = req.body;
 
   if (!token) {
-    console.error('[BACKEND ERROR] MCP_TOKEN non configurato.');
     return res.status(500).json({ 
       error: 'Configurazione Mancante', 
-      message: 'Il server Node non ha la variabile d\'ambiente MCP_TOKEN.' 
+      message: 'MCP_TOKEN non definito nel server Node.',
+      trace: {
+        step: 'NODE_PROXY',
+        targetUrl,
+        payloadSent: requestBody
+      }
     });
   }
 
@@ -62,56 +62,66 @@ app.post('/api/mcp/news', async (req, res) => {
       headers: {
         'Authorization': formattedToken,
         'Content-Type': 'application/json',
-        'Accept': 'application/json, application/json-rpc'
+        'Accept': 'application/json'
       },
-      body: JSON.stringify(req.body)
+      body: JSON.stringify(requestBody)
     });
 
     clearTimeout(timeout);
-
-    const data = await response.json().catch(() => ({ error: 'Invalid JSON response from n8n' }));
+    const data = await response.json().catch(() => ({ error: 'Risposta n8n non valida (non JSON)' }));
 
     if (!response.ok) {
-      console.error(`[N8N ERROR] ${response.status}:`, data);
       return res.status(response.status).json({ 
         error: 'Errore n8n', 
         details: data,
-        status: response.status 
+        trace: {
+          step: 'N8N_SERVER',
+          status: response.status,
+          targetUrl,
+          payloadSent: requestBody,
+          rawResponse: data
+        }
       });
     }
 
-    res.status(200).json(data);
-
+    res.json(data);
   } catch (error) {
-    console.error('[FETCH ERROR]:', error.message);
-    const status = error.name === 'AbortError' ? 504 : 502;
-    res.status(status).json({ 
-      error: status === 504 ? 'Timeout' : 'Connessione Fallita', 
-      message: error.message 
+    console.error('[PROXY ERROR]:', error.message);
+    const isTimeout = error.name === 'AbortError';
+    res.status(isTimeout ? 504 : 502).json({ 
+      error: isTimeout ? 'Timeout' : 'Connessione Fallita', 
+      message: error.message,
+      trace: {
+        step: isTimeout ? 'N8N_SERVER_TIMEOUT' : 'NETWORK_FAILURE',
+        targetUrl,
+        payloadSent: requestBody
+      }
     });
   }
 });
 
-// Gestione file statici
-const distPath = path.join(__dirname, 'dist');
-
+// Risoluzione dinamica della cartella dist
+const distPath = path.resolve(__dirname, 'dist');
 if (fs.existsSync(distPath)) {
   app.use(express.static(distPath));
 }
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
-  
   const indexPath = path.join(distPath, 'index.html');
   if (fs.existsSync(indexPath)) {
     res.sendFile(indexPath);
   } else {
-    res.status(500).send(`Frontend non ancora buildato o cartella dist non trovata in: ${distPath}. Esegui 'npm run build' prima di avviare il server.`);
+    res.status(200).send(`
+      <div style="font-family: sans-serif; padding: 40px; text-align: center; background: #fbedb9; min-height: 100vh;">
+        <h2>Inizializzazione Sistema...</h2>
+        <p>Il frontend è in fase di compilazione. L'app sarà pronta tra pochi istanti.</p>
+        <script>setTimeout(() => window.location.reload(), 5000);</script>
+      </div>
+    `);
   }
 });
 
 app.listen(PORT, '0.0.0.0', () => {
-  console.log(`\n🚀 PROXY SERVER RUNNING ON PORT ${PORT}`);
-  console.log(`🔗 TARGET: ${process.env.N8N_MCP_URL || 'https://docker-n8n-xngg.onrender.com/mcp-server/http'}`);
-  console.log(`🔑 TOKEN: ${process.env.MCP_TOKEN ? 'CONFIGURATO ✅' : 'MANCANTE ❌'}\n`);
+  console.log(`🚀 Proxy attivo sulla porta ${PORT}`);
 });

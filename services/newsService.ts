@@ -4,7 +4,7 @@ import { MOCK_INITIAL_NEWS } from '../constants';
 
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 secondi timeout client-side
+  const timeoutId = setTimeout(() => controller.abort(), 20000); // Timeout client aumentato
 
   try {
     const query = params.tags?.[0] || 'AI news';
@@ -32,8 +32,8 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     const result = await response.json().catch(() => null);
 
     if (!response.ok) {
-      const errorMsg = result?.message || result?.error || 'Errore Sconosciuto';
-      throw new Error(`${errorMsg}`);
+      // In caso di errore API, passiamo l'intero oggetto JSON come stringa per il debug nel frontend
+      throw new Error(JSON.stringify(result || { error: 'Unknown API Error', status: response.status }));
     }
 
     let rawItems: any[] = [];
@@ -59,7 +59,9 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     };
   } catch (err: any) {
     clearTimeout(timeoutId);
-    console.error('[NewsService] Error:', err.name === 'AbortError' ? 'Timeout' : err.message);
+    console.error('[NewsService] Error:', err.message);
+    
+    // Passiamo l'errore serializzato nella versione sorgente per permettere al frontend di ispezionarlo
     return createFallbackResponse('backend-failure', err.message);
   }
 }

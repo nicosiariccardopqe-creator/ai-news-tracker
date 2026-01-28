@@ -47,28 +47,35 @@ const App: React.FC = () => {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    // Al refresh carichiamo tutto per permettere il filtraggio locale completo
+    // Configurazione chiamata MCP
     const requestPayload = { tags: [] }; 
+    const activeTools = ['news_fetcher_v1']; // Definizione tools utilizzati per la connessione MCP
     const payloadStr = JSON.stringify(requestPayload);
+    const toolsStr = activeTools.join(', ');
     
-    addLog(`POST ${MCP_ENDPOINT} | PAYLOAD: ${payloadStr}`, 'NETWORK', requestPayload);
+    // Log completo richiesto: URL, Tools, Payload
+    addLog(`CALL MCP [${MCP_ENDPOINT}] | TOOLS: [${toolsStr}] | PAYLOAD: ${payloadStr}`, 'NETWORK', { 
+      url: MCP_ENDPOINT, 
+      tools: activeTools, 
+      payload: requestPayload 
+    });
 
     try {
       // TENTATIVO 1: Server MCP (Primary)
       const response = await fetchNews(requestPayload);
       setItems(response.items);
       setStatus(AppState.SUCCESS);
-      addLog(`HTTP 200: Connection established with ${MCP_ENDPOINT}. ${response.items.length} records retrieved.`, 'SUCCESS');
+      addLog(`HTTP 200 OK: Data synced from ${MCP_ENDPOINT} using ${toolsStr}.`, 'SUCCESS');
     } catch (error: any) {
       console.error("MCP Connection Error:", error);
       addLog(
-        `FAIL: ${MCP_ENDPOINT} - ${error.message}`, 
+        `SYNC FAIL: [${MCP_ENDPOINT}] - ${error.message}`, 
         'ERROR', 
-        { url: MCP_ENDPOINT, payload: requestPayload }, 
+        { url: MCP_ENDPOINT, tools: activeTools, payload: requestPayload }, 
         error.stack || error.originalStack
       );
 
-      addLog("Switching to local data engine...", 'SYSTEM');
+      addLog("Initializing local engine fallback...", 'SYSTEM');
       await loadFallback(requestPayload);
     } finally {
       setIsRefreshing(false);
@@ -76,24 +83,22 @@ const App: React.FC = () => {
   }, [isRefreshing]);
 
   const handleForceDefault = async () => {
-    addLog("MANUAL INTERRUPT: User triggered 'Force Local' override.", 'OVERRIDE');
+    addLog("MANUAL OVERRIDE: User requested local dataset loading.", 'OVERRIDE');
     setIsRefreshing(false);
     await loadFallback({ tags: [] });
   };
 
   const handleTagClick = (tag: string) => {
     setActiveTag(tag);
-    addLog(`UI Filter: Category changed to ${tag} (Local Filter Only)`, 'INFO', { tag });
+    addLog(`Local Filter Applied: ${tag}`, 'INFO', { tag });
   };
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
-      // Filtro ricerca testuale
       const matchesSearch = searchQuery === '' || 
         (item.title && item.title.toLowerCase().includes(searchQuery.toLowerCase())) || 
         (item.summary && item.summary.toLowerCase().includes(searchQuery.toLowerCase()));
       
-      // Filtro Tag Locale (Richiesto: Solo filtro, no sincronizzazione)
       const matchesTag = activeTag === 'TUTTE' || 
         (item.tags && item.tags.some(t => t.toUpperCase() === activeTag.toUpperCase()));
 
@@ -145,7 +150,7 @@ const App: React.FC = () => {
                   onClick={handleRefresh} 
                   disabled={isRefreshing} 
                   className="w-14 h-14 sm:w-16 sm:h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={isRefreshing ? "Searching..." : "Refresh News"}
+                  title={isRefreshing ? "Syncing..." : "Sync News"}
                  >
                    <svg className={`w-6 h-6 sm:w-8 sm:h-8 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
@@ -243,16 +248,16 @@ const App: React.FC = () => {
                       <span className="text-zinc-300 group-hover/line:text-white truncate max-w-[500px]">{log.message}</span>
                       {log.stack !== 'No stack trace available' && (
                         <span className="bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded text-[8px] font-black uppercase ml-2 border border-red-500/20 animate-pulse">
-                          View Stack Trace
+                          Stack Info
                         </span>
                       )}
-                      <span className="ml-auto text-zinc-700 opacity-0 group-hover/line:opacity-100 transition-opacity uppercase font-black text-[8px]">Inspect Detail +</span>
+                      <span className="ml-auto text-zinc-700 opacity-0 group-hover/line:opacity-100 transition-opacity uppercase font-black text-[8px]">Inspect +</span>
                     </div>
                   ))
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center opacity-40">
-                    <p className="text-zinc-400 uppercase tracking-[0.5em] font-black mb-2 animate-pulse">Waiting for user command...</p>
-                    <p className="text-zinc-700 text-[10px] font-mono uppercase tracking-widest">Execute refresh to begin telemetry</p>
+                    <p className="text-zinc-400 uppercase tracking-[0.5em] font-black mb-2 animate-pulse">Waiting for commands...</p>
+                    <p className="text-zinc-700 text-[10px] font-mono uppercase tracking-widest">Telemetry stream idle</p>
                   </div>
                 )}
               </div>
@@ -260,7 +265,7 @@ const App: React.FC = () => {
                 <div className="flex items-center gap-2 text-zinc-600 text-[9px] font-bold uppercase">
                   <span>Connection:</span>
                   <span className={status === AppState.IDLE ? 'text-zinc-500' : 'text-emerald-500'}>
-                    {status === AppState.IDLE ? 'Offline' : 'Hybrid (MCP / Local)'}
+                    {status === AppState.IDLE ? 'Offline' : 'Active Channel'}
                   </span>
                 </div>
                 {isRefreshing && (
@@ -269,7 +274,7 @@ const App: React.FC = () => {
                     className="text-amber-500 text-[9px] font-black uppercase tracking-widest hover:underline animate-pulse flex items-center gap-2"
                   >
                     <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                    Interrupt primary & Load Default
+                    Emergency Local Override
                   </button>
                 )}
               </div>

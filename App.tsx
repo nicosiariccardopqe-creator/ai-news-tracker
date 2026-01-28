@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useMemo } from 'react';
 import { AppState, NewsItem, ErrorDetail } from './types';
-import { fetchNews, fetchMockNews } from './services/newsService';
+import { fetchNews, fetchMockNews, MCP_ENDPOINT } from './services/newsService';
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
 import DebugModal from './components/DebugModal';
@@ -49,20 +49,22 @@ const App: React.FC = () => {
     
     // Al refresh carichiamo tutto per permettere il filtraggio locale completo
     const requestPayload = { tags: [] }; 
-    addLog(`Initiating primary fetch sequence (Full Sync)`, 'NETWORK', requestPayload);
+    const payloadStr = JSON.stringify(requestPayload);
+    
+    addLog(`POST ${MCP_ENDPOINT} | PAYLOAD: ${payloadStr}`, 'NETWORK', requestPayload);
 
     try {
       // TENTATIVO 1: Server MCP (Primary)
       const response = await fetchNews(requestPayload);
       setItems(response.items);
       setStatus(AppState.SUCCESS);
-      addLog(`Primary connection established: ${response.items.length} records retrieved.`, 'SUCCESS');
+      addLog(`HTTP 200: Connection established with ${MCP_ENDPOINT}. ${response.items.length} records retrieved.`, 'SUCCESS');
     } catch (error: any) {
       console.error("MCP Connection Error:", error);
       addLog(
-        `CRITICAL: ${error.message}`, 
+        `FAIL: ${MCP_ENDPOINT} - ${error.message}`, 
         'ERROR', 
-        { provider: 'mcp_server', action: 'fetch_news' }, 
+        { url: MCP_ENDPOINT, payload: requestPayload }, 
         error.stack || error.originalStack
       );
 

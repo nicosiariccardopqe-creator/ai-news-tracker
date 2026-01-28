@@ -2,17 +2,16 @@
 import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
+export const MCP_ENDPOINT = '/api/news/default';
+
 /**
  * Tenta di recuperare le news dal server primario.
  * Se fallisce, solleva un errore per permettere il logging dello stack trace.
  */
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
-  const activeTag = params.tags?.[0] || 'TUTTE';
-  
   try {
     // TENTATIVO PRIMARIO: Chiamata al server MCP (simulata o reale)
-    // Usiamo un endpoint che probabilmente fallirà in locale per generare lo stack trace richiesto
-    const response = await fetch('/api/news/default', {
+    const response = await fetch(MCP_ENDPOINT, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(params),
@@ -26,8 +25,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     return await response.json();
   } catch (error: any) {
     // Se la chiamata fallisce, rilanciamo l'errore per il logger dell'App
-    // Ma alleghiamo una proprietà speciale per indicare che è un fallimento del "Default Provider"
-    const stackError = new Error(`[MCP_FAILURE] Impossibile recuperare news dal server primario: ${error.message}`);
+    const stackError = new Error(`[MCP_FAILURE] Impossibile recuperare news da ${MCP_ENDPOINT}: ${error.message}`);
     (stackError as any).isProviderError = true;
     (stackError as any).originalStack = error.stack;
     throw stackError;

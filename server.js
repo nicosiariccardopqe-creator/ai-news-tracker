@@ -96,7 +96,13 @@ app.use(express.static(distPath));
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
-  res.sendFile(path.join(distPath, 'index.html'));
+  // Se siamo in produzione su Render, serviamo il file dalla cartella dist
+  res.sendFile(path.join(distPath, 'index.html'), (err) => {
+    if (err) {
+      // Se il file non esiste (perché non abbiamo ancora buildato), diamo un errore pulito
+      res.status(500).send("L'applicazione frontend non è ancora stata compilata. Esegui 'npm run build'.");
+    }
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => {

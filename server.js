@@ -1,7 +1,6 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import fetch from 'node-fetch';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -11,27 +10,56 @@ const PORT = process.env.PORT || 4000;
 
 app.use(express.json());
 
-// Endpoint API sicuro per il frontend
+// Logger per il monitoraggio delle richieste
+app.use((req, res, next) => {
+  if (!req.url.startsWith('/assets')) {
+    console.log(`[${new Date().toLocaleTimeString()}] ${req.method} ${req.url}`);
+  }
+  next();
+});
+
+// Endpoint di Health Check e Debug
+app.get('/api/health', (req, res) => {
+  try {
+    res.json({ 
+      status: 'ok', 
+      timestamp: new Date().toISOString(),
+      node_version: process.version,
+      config: {
+        hasToken: !!process.env.MCP_TOKEN,
+        tokenPrefix: process.env.MCP_TOKEN ? process.env.MCP_TOKEN.substring(0, 10) + '...' : 'null',
+        targetUrl: process.env.N8N_MCP_URL || 'https://docker-n8n-xngg.onrender.com/mcp-server/http'
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Health check failed', details: err.message });
+  }
+});
+
+// Endpoint proxy principale
 app.post('/api/mcp/news', async (req, res) => {
   const targetUrl = process.env.N8N_MCP_URL || 'https://docker-n8n-xngg.onrender.com/mcp-server/http';
   const token = process.env.MCP_TOKEN;
 
-  console.log(`[Backend] Ricevuta richiesta per query: ${req.body.params?.arguments?.query || 'N/A'}`);
-
   if (!token) {
-    console.error('[Backend Error] MCP_TOKEN non configurato.');
-    return res.status(500).json({ error: 'Configurazione Mancante: MCP_TOKEN non impostato sul server.' });
+    console.error('[BACKEND ERROR] MCP_TOKEN non configurato.');
+    return res.status(500).json({ 
+      error: 'Configurazione Mancante', 
+      message: 'Il server Node non ha la variabile d\'ambiente MCP_TOKEN.' 
+    });
   }
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30 secondi di timeout
+    const timeout = setTimeout(() => controller.abort(), 45000);
+
+    const formattedToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
 
     const response = await fetch(targetUrl, {
       method: 'POST',
       signal: controller.signal,
       headers: {
-        'Authorization': token.startsWith('Bearer ') ? token : `Bearer ${token}`,
+        'Authorization': formattedToken,
         'Content-Type': 'application/json',
         'Accept': 'application/json, application/json-rpc'
       },
@@ -40,41 +68,39 @@ app.post('/api/mcp/news', async (req, res) => {
 
     clearTimeout(timeout);
 
+    const data = await response.json().catch(() => ({ error: 'Invalid JSON response from n8n' }));
+
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'No body');
-      console.error(`[Backend Error] n8n ha risposto con ${response.status}: ${errorText}`);
-      return res.status(response.status).json({ error: 'Errore dal server n8n', details: errorText });
+      console.error(`[N8N ERROR] ${response.status}:`, data);
+      return res.status(response.status).json({ 
+        error: 'Errore n8n', 
+        details: data,
+        status: response.status 
+      });
     }
 
-    const data = await response.json();
-    console.log(`[Backend] Risposta ricevuta correttamente da n8n.`);
-    res.status(response.status).json(data);
+    res.status(200).json(data);
+
   } catch (error) {
-    if (error.name === 'AbortError') {
-      console.error('[Backend Error] La richiesta a n8n è andata in timeout.');
-      res.status(504).json({ error: 'Timeout connessione n8n' });
-    } else {
-      console.error('[Backend Error] Errore critico di rete:', error.message);
-      res.status(502).json({ error: 'Errore di connessione verso n8n', details: error.message });
-    }
+    console.error('[FETCH ERROR]:', error.message);
+    res.status(502).json({ 
+      error: 'Connessione Fallita', 
+      message: 'Impossibile raggiungere n8n. Controlla l\'URL.',
+      details: error.message 
+    });
   }
 });
 
-// Serve i file statici della build di Vite in produzione
 const distPath = path.join(__dirname, 'dist');
 app.use(express.static(distPath));
 
-// Rotta catch-all per SPA (Single Page Application)
 app.get('*', (req, res) => {
-  // Evita di servire index.html se la richiesta cercava un'API non esistente
-  if (req.path.startsWith('/api/')) {
-    return res.status(404).json({ error: 'API Endpoint not found' });
-  }
+  if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   res.sendFile(path.join(distPath, 'index.html'));
 });
 
-app.listen(PORT, () => {
-  console.log(`[Server Ready] In ascolto sulla porta ${PORT}`);
-  console.log(`[Config Check] Target n8n URL: ${process.env.N8N_MCP_URL || 'https://docker-n8n-xngg.onrender.com/mcp-server/http'}`);
-  console.log(`[Config Check] Token Presente: ${process.env.MCP_TOKEN ? 'SI' : 'NO'}`);
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`\n🚀 PROXY SERVER RUNNING ON PORT ${PORT}`);
+  console.log(`🔗 TARGET: ${process.env.N8N_MCP_URL || 'https://docker-n8n-xngg.onrender.com/mcp-server/http'}`);
+  console.log(`🔑 TOKEN: ${process.env.MCP_TOKEN ? 'CONFIGURATO ✅' : 'MANCANTE ❌'}\n`);
 });

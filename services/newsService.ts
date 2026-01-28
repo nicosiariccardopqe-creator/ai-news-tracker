@@ -4,7 +4,7 @@ import { MOCK_INITIAL_NEWS } from '../constants';
 
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   const controller = new AbortController();
-  // Timeout impostato a 60 secondi come richiesto
+  // Timeout di 60 secondi
   const timeoutId = setTimeout(() => controller.abort(), 60000); 
 
   try {
@@ -30,13 +30,13 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
 
     clearTimeout(timeoutId);
 
-    const result = await response.json().catch(() => null);
-
     if (!response.ok) {
-      // In caso di errore API, restituiamo comunque il fallback con le news di default
-      console.warn('[NewsService] API Error, loading defaults...', result);
-      return createFallbackResponse('api-error', JSON.stringify(result));
+      const errorData = await response.json().catch(() => ({}));
+      console.warn('[NewsService] API Error, loading defaults...', errorData);
+      return createFallbackResponse('api-error', JSON.stringify(errorData));
     }
+
+    const result = await response.json();
 
     let rawItems: any[] = [];
     if (result?.result?.content && Array.isArray(result.result.content)) {
@@ -64,7 +64,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     const isTimeout = err.name === 'AbortError';
     console.error(`[NewsService] ${isTimeout ? 'Timeout (60s)' : 'Error'}:`, err.message);
     
-    // In caso di timeout o errore di rete, carichiamo le news di default
+    // In caso di errore o timeout, carica sempre le news di default
     return createFallbackResponse(isTimeout ? 'timeout' : 'network-failure', err.message);
   }
 }

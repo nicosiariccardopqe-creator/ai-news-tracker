@@ -1,6 +1,6 @@
-import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useCallback, useEffect, useMemo } from 'react';
 import { AppState, NewsItem } from './types';
-import { fetchNews, trackTelemetry } from './services/newsService';
+import { fetchNews } from './services/newsService';
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
 import { CATEGORIES } from './constants';
@@ -11,9 +11,9 @@ const ErrorModal: React.FC<{ isOpen: boolean; onClose: () => void; errorData: an
   const trace = errorData?.trace || {};
   
   const steps = [
-    { id: 'BROWSER', label: 'Browser', status: 'success', data: trace.payloadSent || { info: "Richiesta inviata dal client" } },
-    { id: 'NODE', label: 'Node Proxy', status: trace.step === 'NODE_PROXY' ? 'error' : 'success', data: { endpoint: '/api/mcp/news', status: errorData?.status || 200 } },
-    { id: 'N8N', label: 'n8n Server', status: (trace.step === 'N8N_SERVER' || trace.step === 'N8N_SERVER_TIMEOUT') ? 'error' : (trace.step === 'NETWORK_FAILURE' ? 'warning' : 'pending'), data: { url: trace.targetUrl || 'Non raggiunto', response: trace.rawResponse || errorData?.details || "Nessuna risposta ricevuta" } }
+    { id: 'BROWSER', label: 'Browser', status: 'success' },
+    { id: 'NODE', label: 'Node Proxy', status: trace.step === 'NODE_PROXY' ? 'error' : 'success' },
+    { id: 'N8N', label: 'n8n Server', status: (trace.step?.includes('SERVER') || trace.step?.includes('TIMEOUT')) ? 'error' : 'pending' }
   ];
 
   return (
@@ -25,7 +25,7 @@ const ErrorModal: React.FC<{ isOpen: boolean; onClose: () => void; errorData: an
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <div>
-              <h3 className="font-black uppercase tracking-widest text-sm">Monitoraggio Flusso Chiamate</h3>
+              <h3 className="font-black uppercase tracking-widest text-sm">Dettaglio Errore Tecnico</h3>
               <p className="text-red-100 text-[11px] font-bold opacity-80">Sequenza: Browser → Node → n8n</p>
             </div>
           </div>
@@ -35,54 +35,29 @@ const ErrorModal: React.FC<{ isOpen: boolean; onClose: () => void; errorData: an
         </div>
 
         <div className="p-8 space-y-8">
-          {/* Flow Visualizer */}
-          <div className="relative">
-            <div className="flex flex-col md:flex-row items-center justify-between gap-4 relative">
-              <div className="absolute top-1/2 left-0 w-full h-0.5 bg-slate-100 -translate-y-1/2 hidden md:block"></div>
-              {steps.map((step, idx) => (
-                <div key={step.id} className="relative z-10 flex flex-col items-center w-full md:w-auto">
-                  <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg transition-all duration-500 ${
-                    step.status === 'success' ? 'bg-emerald-500 text-white' : 
-                    step.status === 'error' ? 'bg-red-500 text-white animate-pulse' : 
-                    step.status === 'warning' ? 'bg-amber-500 text-white' : 'bg-slate-100 text-slate-300'
-                  }`}>
-                    {step.status === 'success' ? (
-                      <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
-                    ) : (
-                      <span className="font-black text-xs">{idx + 1}</span>
-                    )}
-                  </div>
-                  <p className="mt-3 text-[11px] font-black uppercase tracking-tighter text-slate-900">{step.label}</p>
+          <div className="flex flex-col md:flex-row items-center justify-between gap-4 relative">
+            <div className="absolute top-1/2 left-0 w-full h-0.5 bg-slate-100 -translate-y-1/2 hidden md:block"></div>
+            {steps.map((step, idx) => (
+              <div key={step.id} className="relative z-10 flex flex-col items-center w-full md:w-auto">
+                <div className={`w-14 h-14 rounded-2xl flex items-center justify-center shadow-lg ${
+                  step.status === 'success' ? 'bg-emerald-500 text-white' : 
+                  step.status === 'error' ? 'bg-red-500 text-white animate-pulse' : 'bg-slate-100 text-slate-300'
+                }`}>
+                  <span className="font-black text-xs">{idx + 1}</span>
                 </div>
-              ))}
-            </div>
+                <p className="mt-3 text-[11px] font-black uppercase tracking-tighter text-slate-900">{step.label}</p>
+              </div>
+            ))}
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div className="space-y-3">
-              <p className="text-[11px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>
-                Dati Inviati dal Browser (JSON)
-              </p>
-              <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 font-mono text-[11px] text-emerald-400 overflow-x-auto shadow-inner h-48 no-scrollbar">
-                <pre>{JSON.stringify(trace.payloadSent || { info: "In attesa di dati..." }, null, 2)}</pre>
-              </div>
-            </div>
-            <div className="space-y-3">
-              <p className="text-[11px] text-slate-500 font-black uppercase tracking-widest flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
-                Risposta dal Server (Log)
-              </p>
-              <div className="bg-slate-950 p-5 rounded-2xl border border-slate-800 font-mono text-[11px] text-red-400 overflow-x-auto shadow-inner h-48 no-scrollbar">
-                <pre>{JSON.stringify(errorData, null, 2)}</pre>
-              </div>
-            </div>
+          <div className="bg-slate-950 p-6 rounded-2xl border border-slate-800 font-mono text-[11px] text-red-400 overflow-x-auto shadow-inner max-h-64 no-scrollbar">
+            <pre>{JSON.stringify(errorData, null, 2)}</pre>
           </div>
         </div>
 
         <div className="bg-slate-50 px-8 py-6 border-t border-slate-100 flex justify-end gap-3">
-          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-100 transition-all">Reload App</button>
-          <button onClick={onClose} className="px-10 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Chiudi Log</button>
+          <button onClick={() => window.location.reload()} className="px-6 py-3 bg-white border border-slate-200 text-slate-600 text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-slate-100">Reload App</button>
+          <button onClick={onClose} className="px-10 py-3 bg-slate-900 text-white text-[10px] font-black uppercase tracking-widest rounded-xl hover:bg-black">Chiudi Log</button>
         </div>
       </div>
     </div>
@@ -94,7 +69,6 @@ const App: React.FC = () => {
   const [status, setStatus] = useState<AppState>(AppState.IDLE);
   const [activeTag, setActiveTag] = useState('TUTTE');
   const [searchQuery, setSearchQuery] = useState('');
-  const [lastSync, setLastSync] = useState<Date | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [sourceVersion, setSourceVersion] = useState<string>('');
   const [errorDetails, setErrorDetails] = useState<any>(null);
@@ -108,19 +82,16 @@ const App: React.FC = () => {
     try {
       const response = await fetchNews({ tags: activeTag !== 'TUTTE' ? [activeTag] : [] });
       setItems(response.items);
-      setLastSync(new Date());
       setSourceVersion(response.source_version);
       setStatus(AppState.SUCCESS);
       
-      // Se il caricamento è un fallback critico (non solo dati vuoti), mostriamo il log
-      if (response.source_version.includes('fallback-api-error') || response.source_version.includes('fallback-network-failure')) {
+      if (response.source_version.startsWith('fallback-')) {
         const errorPart = response.source_version.split('::')[1];
         try { setErrorDetails(JSON.parse(errorPart)); } catch { setErrorDetails({ message: errorPart }); }
-        // Non apriamo il modal automaticamente per non interrompere l'utente se le mock news sono state caricate
       }
     } catch (error: any) {
       setStatus(AppState.ERROR);
-      setErrorDetails({ message: error.message, trace: { step: 'INTERNAL_UI_ERROR' } });
+      setErrorDetails({ message: error.message });
       setIsErrorModalOpen(true);
     } finally {
       setIsRefreshing(false);
@@ -151,12 +122,12 @@ const App: React.FC = () => {
         <div className="flex flex-col lg:flex-row gap-8 items-start">
           <div className="flex-1 w-full space-y-6">
             
-            {/* Statistiche Rapide */}
+            {/* Statistiche Radar */}
             <section className="bg-white rounded-3xl p-8 card-shadow flex items-center justify-between border border-slate-100 h-36">
                <div className="flex items-center gap-10">
                   <div className="flex items-baseline gap-3">
-                    <span className="text-5xl font-black text-slate-900 tracking-tighter">{items.length}</span>
-                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Risultati</span>
+                    <span className="text-5xl font-black text-slate-900 tracking-tighter">{filteredItems.length}</span>
+                    <span className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Post</span>
                   </div>
                   <div className="w-px h-12 bg-slate-100"></div>
                   <div className="flex flex-col">
@@ -167,16 +138,12 @@ const App: React.FC = () => {
                     </span>
                   </div>
                </div>
-               <button 
-                 onClick={() => handleRefresh()} 
-                 disabled={isRefreshing} 
-                 className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-slate-200 text-slate-400' : 'bg-slate-900 text-white hover:bg-black'}`}
-               >
+               <button onClick={() => handleRefresh()} disabled={isRefreshing} className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl active:scale-95 disabled:opacity-50">
                  <svg className={`w-8 h-8 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
                </button>
             </section>
 
-            {/* Ricerca e Filtri */}
+            {/* Design Ricerca Aggiornato: Barra 100% + Tag sotto */}
             <section className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 card-shadow border border-white/50 space-y-6">
               <div className="relative w-full">
                 <input 
@@ -204,21 +171,14 @@ const App: React.FC = () => {
               </div>
             </section>
 
-            {/* Avviso Timeout/Fallback */}
+            {/* Avviso Fallback Timeout/Errore */}
             {isFallback && (
               <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2 bg-amber-200 rounded-lg text-amber-700">
-                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-                  </div>
-                  <p className="text-xs font-bold text-amber-800 uppercase tracking-tight">Backend non raggiungibile. Visualizzazione notizie di archivio.</p>
-                </div>
-                <button 
-                  onClick={() => setIsErrorModalOpen(true)}
-                  className="text-[10px] font-black uppercase text-amber-600 hover:underline"
-                >
-                  Vedi Log Dettagliati
-                </button>
+                <p className="text-xs font-bold text-amber-800 uppercase tracking-tight flex items-center gap-3">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse"></span>
+                  Connessione lenta o backend non disponibile (Timeout 60s). News di archivio caricate.
+                </p>
+                <button onClick={() => setIsErrorModalOpen(true)} className="text-[10px] font-black uppercase text-amber-600 hover:underline">Log Errore</button>
               </div>
             )}
 
@@ -236,7 +196,7 @@ const App: React.FC = () => {
             </div>
           </div>
 
-          {/* Flow Feed Sidebar */}
+          {/* Sidebar Flow */}
           <aside className="w-full lg:w-[400px]">
             <div className="bg-[#0a0a0a] rounded-[2.5rem] p-10 text-white min-h-[600px] shadow-2xl sticky top-8 border border-white/5 overflow-hidden">
               <div className="flex justify-between items-center mb-10">
@@ -253,9 +213,6 @@ const App: React.FC = () => {
                     </div>
                   </div>
                 ))}
-              </div>
-              <div className="mt-12 pt-8 border-t border-zinc-900">
-                <p className="text-[9px] font-black text-zinc-700 uppercase tracking-[0.4em]">Briefing Engine v1.0</p>
               </div>
             </div>
           </aside>

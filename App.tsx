@@ -17,8 +17,8 @@ const ErrorModal: React.FC<{ isOpen: boolean; onClose: () => void; errorDetail: 
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <div>
-              <h3 className="text-white font-extrabold uppercase tracking-widest text-[12px]">Errore di Sincronizzazione</h3>
-              <p className="text-red-100 text-[10px] font-medium opacity-80">Rilevato blocco CORS o Network Failure</p>
+              <h3 className="text-white font-extrabold uppercase tracking-widest text-[12px]">Errore di Connessione</h3>
+              <p className="text-red-100 text-[10px] font-medium opacity-80">Rilevato possibile blocco CORS</p>
             </div>
           </div>
           <button onClick={onClose} className="text-white/60 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-full">
@@ -27,21 +27,21 @@ const ErrorModal: React.FC<{ isOpen: boolean; onClose: () => void; errorDetail: 
         </div>
         <div className="p-8 space-y-6">
           <div className="space-y-2">
-            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Log di Debug del Sistema:</p>
+            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Log di Debug:</p>
             <div className="bg-slate-950 p-5 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-400 break-words whitespace-pre-wrap leading-relaxed shadow-inner overflow-y-auto max-h-72">
-              {errorDetail || "Tentativo di connessione fallito senza log specifici."}
+              {errorDetail || "Failed to fetch: Il server n8n non ha risposto correttamente alle politiche CORS del browser."}
             </div>
           </div>
           <div className="p-4 bg-amber-50 border-l-4 border-amber-400 rounded-r-lg">
-            <h4 className="text-amber-800 text-xs font-bold mb-1 uppercase tracking-tight">Perché succede?</h4>
+            <h4 className="text-amber-800 text-xs font-bold mb-1 uppercase tracking-tight">Come risolvere?</h4>
             <p className="text-[12px] text-amber-700 leading-relaxed">
-              Il server n8n su Render non ha configurato correttamente le intestazioni <strong>CORS</strong>. L'app ha tentato 3 tipi di connessione (Diretta, AllOrigins, CorsProxy) ma il browser continua a bloccare la richiesta per sicurezza.
+              Questo errore accade quando il server remoto non permette al browser di leggere i dati per sicurezza. Abbiamo attivato un <strong>Proxy CORS automatico</strong>, ma se il problema persiste, prova a ricaricare la pagina o a svuotare la cache.
             </p>
           </div>
         </div>
         <div className="bg-slate-50 px-8 py-5 border-t border-slate-100 flex flex-wrap justify-end gap-3">
-          <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-slate-100 transition-all">Pulisci Tutto & Reload</button>
-          <button onClick={onClose} className="px-8 py-2.5 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-black transition-all shadow-xl">Ho capito</button>
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-slate-100 transition-all">Pulisci & Ricarica</button>
+          <button onClick={onClose} className="px-8 py-2.5 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-black transition-all shadow-xl">Chiudi</button>
         </div>
       </div>
     </div>
@@ -66,11 +66,11 @@ const App: React.FC = () => {
     
     setIsRefreshing(true);
     
-    // Pulizia News: garantisce che la UI mostri che i dati precedenti sono stati rimossi
+    // Pulizia Immediata: Svuotiamo le news e mettiamo in loading per feedback visivo
     if (!isBackground) {
       setItems([]); 
       setStatus(AppState.LOADING);
-      setSourceVersion('CLEANING_CACHE...');
+      setSourceVersion('SINCRO_IN_CORSO...');
     }
     
     trackTelemetry('cta_refresh_clicked', { isInitial, isBackground });
@@ -85,9 +85,16 @@ const App: React.FC = () => {
       setSourceVersion(response.source_version);
       setStatus(AppState.SUCCESS);
       
+      // Se è un fallback di errore, mostriamo il modal
+      if (response.source_version.includes('failure')) {
+        setIsErrorModalOpen(true);
+      }
+      
     } catch (error: any) {
-      console.error("Critical Fetch Error:", error);
+      console.error("Critical UI Error:", error);
       setStatus(AppState.ERROR);
+      setSourceVersion('error::' + error.message);
+      setIsErrorModalOpen(true);
     } finally {
       setIsRefreshing(false);
     }
@@ -125,12 +132,12 @@ const App: React.FC = () => {
     });
   }, [items, activeTag, searchQuery]);
 
-  const isLive = sourceVersion.includes('live') && !sourceVersion.includes('fallback');
+  const isLive = sourceVersion.includes('live') && !sourceVersion.includes('failure');
 
   const getErrorMessage = () => {
     if (sourceVersion.includes('timeout')) return 'Timeout 60s';
-    if (sourceVersion.includes('error')) return 'CORS Block';
-    if (sourceVersion.includes('empty')) return 'Dati Vuoti';
+    if (sourceVersion.includes('failure')) return 'Errore CORS';
+    if (sourceVersion.includes('empty')) return 'Nessun Dato';
     return 'Offline';
   };
 
@@ -156,8 +163,8 @@ const App: React.FC = () => {
                     <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                   </div>
                   <div>
-                    <p className="text-[11px] font-extrabold uppercase tracking-widest text-amber-700">Backup Sincronizzato ({getErrorMessage()})</p>
-                    <p className="text-[12px] font-medium opacity-90 max-w-lg">Server n8n non raggiungibile via CORS. Visualizzando l'archivio locale per garantire la continuità del servizio.</p>
+                    <p className="text-[11px] font-extrabold uppercase tracking-widest text-amber-700">Database di Backup Attivo ({getErrorMessage()})</p>
+                    <p className="text-[12px] font-medium opacity-90 max-w-lg">Sincronizzazione Live non riuscita. Visualizzando notizie pre-caricate per evitare interruzioni.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 w-full md:w-auto">
@@ -165,14 +172,14 @@ const App: React.FC = () => {
                     onClick={() => setIsErrorModalOpen(true)}
                     className="flex-1 md:flex-none px-4 py-2 text-amber-800 hover:bg-amber-200 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all border border-amber-300/50"
                   >
-                    Vedi Log
+                    Diagnostica
                   </button>
                   <button 
                     onClick={() => handleRefresh()}
                     disabled={isRefreshing}
                     className="flex-1 md:flex-none px-6 py-2 bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-amber-700 transition-all disabled:opacity-50 shadow-lg active:scale-95"
                   >
-                    {isRefreshing ? 'Cleaning...' : 'Sincronizza Ora'}
+                    {isRefreshing ? 'Pulizia...' : 'Riprova Live'}
                   </button>
                 </div>
               </div>
@@ -184,18 +191,18 @@ const App: React.FC = () => {
                   <span className="text-4xl font-extrabold tracking-tighter text-slate-900">
                     {isRefreshing && items.length === 0 ? '...' : items.length}
                   </span>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">News Caricate</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">News</span>
                 </div>
                 <div className="w-px h-12 bg-slate-100 shrink-0"></div>
                 <div className="flex flex-col justify-center shrink-0">
                   <div className="flex items-baseline gap-3">
                     <span className="text-4xl font-extrabold tracking-tighter text-slate-900">Live</span>
-                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Feed Status</span>
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Status</span>
                   </div>
                   {lastSync && (
                     <span className="text-[10px] font-bold text-slate-400 mt-1 flex items-center gap-1.5 uppercase tracking-tight">
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                      Sync: {lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${isLive ? 'bg-emerald-500' : 'bg-amber-500'}`}></span>
+                      {lastSync.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                     </span>
                   )}
                 </div>
@@ -206,13 +213,13 @@ const App: React.FC = () => {
                       {isLive ? 'ON' : 'OFF'}
                     </span>
                   </div>
-                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Stream</span>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Proxy</span>
                 </div>
               </div>
 
               <div className="flex items-center gap-8 pl-8 border-l border-slate-100">
                 <div className="text-right hidden md:block">
-                  <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Auto-Polling</span>
+                  <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Auto-Refresh</span>
                   <button 
                     onClick={() => setIsAutoSyncEnabled(!isAutoSyncEnabled)}
                     className={`w-12 h-6 rounded-full relative p-1 transition-all duration-500 shadow-inner ${isAutoSyncEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}
@@ -223,7 +230,7 @@ const App: React.FC = () => {
                 <button 
                   onClick={() => handleRefresh()}
                   className={`w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-2xl hover:bg-black active:scale-90 transition-all shrink-0 group-hover:rotate-12 ${isRefreshing ? 'animate-spin opacity-50' : ''}`}
-                  title="Pulisci e Forza Aggiornamento News"
+                  title="Aggiorna Forzato"
                   disabled={isRefreshing}
                 >
                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -236,7 +243,7 @@ const App: React.FC = () => {
                 <div className="relative flex-1 w-full">
                   <input 
                     type="text" 
-                    placeholder="Cerca tra le news correnti..."
+                    placeholder="Filtra notizie..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full h-14 pl-14 pr-12 bg-slate-100/50 rounded-xl text-sm font-medium focus:outline-none focus:ring-4 focus:ring-slate-900/5 transition-all border border-slate-200/50 placeholder:text-slate-400"
@@ -250,7 +257,7 @@ const App: React.FC = () => {
                       onClick={() => setActiveTag(cat)}
                       className={`px-5 py-2.5 rounded-xl text-[10px] font-extrabold tracking-widest transition-all whitespace-nowrap border-2 ${
                         activeTag === cat 
-                          ? 'bg-slate-900 text-white border-slate-900 shadow-xl scale-105' 
+                          ? 'bg-slate-900 text-white border-slate-900 shadow-xl' 
                           : 'bg-white text-slate-400 border-slate-100 hover:border-slate-300 shadow-sm'
                       }`}
                     >
@@ -274,21 +281,17 @@ const App: React.FC = () => {
                     <div className="flex-1"></div>
                     <div className="flex gap-2">
                       <div className="w-20 h-5 bg-slate-200 rounded"></div>
-                      <div className="w-20 h-5 bg-slate-200 rounded"></div>
                     </div>
                   </div>
                 ))
               ) : filteredItems.length > 0 ? (
                 filteredItems.map(item => <NewsCard key={item.id} item={item} />)
               ) : (
-                <div className="col-span-full py-32 text-center animate-in zoom-in-95 duration-500">
+                <div className="col-span-full py-32 text-center">
                   <div className="bg-white/70 backdrop-blur-md rounded-3xl p-12 border border-white/50 inline-block w-full max-w-md shadow-2xl">
-                    <div className="w-24 h-24 bg-slate-100 rounded-full flex items-center justify-center mx-auto mb-6">
-                      <svg className="w-10 h-10 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                    </div>
-                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Feed Vuoto</h3>
-                    <p className="text-slate-500 mt-4 text-sm font-medium leading-relaxed">Nessuna notizia corrisponde ai criteri di ricerca. Prova a svuotare la cache n8n cliccando sul tasto aggiorna principale.</p>
-                    <button onClick={() => handleRefresh()} className="mt-8 px-8 py-3 bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Forza Reload</button>
+                    <h3 className="text-2xl font-black text-slate-900 tracking-tight">Nessuna Notizia</h3>
+                    <p className="text-slate-500 mt-4 text-sm font-medium">I server remoti non hanno risposto. Premi Aggiorna per tentare una nuova connessione proxy.</p>
+                    <button onClick={() => handleRefresh()} className="mt-8 px-8 py-3 bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Sincronizza</button>
                   </div>
                 </div>
               )}
@@ -296,26 +299,25 @@ const App: React.FC = () => {
           </div>
 
           <aside className="w-full lg:w-[400px] shrink-0">
-            <div className="bg-[#0f0f0f] rounded-3xl p-8 text-white min-h-[800px] flex flex-col shadow-[0_50px_100px_-20px_rgba(0,0,0,0.5)] border border-white/10 sticky top-8">
+            <div className="bg-[#0f0f0f] rounded-3xl p-8 text-white min-h-[800px] flex flex-col shadow-2xl border border-white/10 sticky top-8">
               <div className="flex justify-between items-start mb-8">
                 <div>
                   <h2 className="text-3xl font-black tracking-tighter leading-none">News Log</h2>
                   <div className="flex items-center gap-2 mt-2">
-                    <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]' : 'bg-red-500'} animate-pulse`}></div>
+                    <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-500'} animate-pulse`}></div>
                     <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">
-                      {isLive ? 'ACTIVE MCP CONNECTION' : 'LEGACY BACKUP MODE'}
+                      {isLive ? 'MCP STREAM ACTIVE' : 'CORS PROTECTION MODE'}
                     </p>
                   </div>
                 </div>
                 <div className="text-right">
                   <span className="text-5xl font-black text-zinc-800 tracking-tighter block">{items.length}</span>
-                  <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-widest">Total Items</span>
                 </div>
               </div>
 
               <div className="flex-1 space-y-4 overflow-y-auto no-scrollbar pr-2">
                 {items.length === 0 && status === AppState.LOADING ? (
-                   [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map(i => (
+                   [1, 2, 3, 4, 5, 6, 7].map(i => (
                     <div key={i} className="flex gap-5 items-center p-4 animate-pulse opacity-20">
                       <div className="w-8 h-8 rounded bg-zinc-800"></div>
                       <div className="flex-1 space-y-2">
@@ -326,16 +328,13 @@ const App: React.FC = () => {
                   ))
                 ) : (
                   items.slice(0, 20).map((item, i) => (
-                    <div key={item.id} className="flex gap-5 items-center group cursor-pointer p-4 hover:bg-white/5 rounded-2xl transition-all duration-300 border border-transparent hover:border-white/5 active:scale-95">
-                      <div className="w-8 h-8 shrink-0 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 group-hover:border-zinc-500 group-hover:text-emerald-400 transition-all font-black text-[10px]">
+                    <div key={item.id} className="flex gap-5 items-center group cursor-pointer p-4 hover:bg-white/5 rounded-2xl transition-all duration-300 border border-transparent hover:border-white/5">
+                      <div className="w-8 h-8 shrink-0 rounded-xl bg-zinc-900 border border-zinc-800 flex items-center justify-center text-zinc-600 group-hover:text-emerald-400 font-black text-[10px]">
                         {i + 1}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <h4 className="text-[13px] font-bold truncate group-hover:text-white transition-colors leading-none mb-1">{item.title}</h4>
-                        <div className="flex justify-between items-center">
-                          <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">{item.source.name}</p>
-                          <span className="text-[8px] font-bold text-zinc-700">{new Date(item.published_at).toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}</span>
-                        </div>
+                        <h4 className="text-[13px] font-bold truncate group-hover:text-white leading-none mb-1">{item.title}</h4>
+                        <p className="text-[9px] font-black text-zinc-600 uppercase tracking-widest">{item.source.name}</p>
                       </div>
                     </div>
                   ))
@@ -343,17 +342,11 @@ const App: React.FC = () => {
               </div>
 
               <div className="mt-8 pt-8 border-t border-zinc-800">
-                <div className="bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800">
-                  <div className="flex justify-between text-[9px] font-black text-zinc-500 uppercase tracking-widest mb-2">
-                    <span>Source Signature</span>
-                    <span className="text-emerald-500">{isLive ? 'Verified' : 'Cached'}</span>
-                  </div>
-                  <div className="font-mono text-[10px] text-zinc-400 truncate opacity-60">
-                    {sourceVersion.split('::')[0]}
-                  </div>
+                <div className="bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800 text-[10px] text-zinc-500 font-mono truncate">
+                  {sourceVersion.split('::')[0]}
                 </div>
                 <p className="text-[8px] font-bold text-zinc-700 text-center uppercase tracking-widest mt-6 opacity-40">
-                  Daily AI Briefing Engine v2.4.0
+                  AI Briefing Engine v2.4.5
                 </p>
               </div>
             </div>

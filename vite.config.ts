@@ -16,35 +16,35 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 3000,
       host: '0.0.0.0',
-      allowedHosts: true, // Risolve "Host Blocked" su Render
+      allowedHosts: true,
       proxy: {
         '/api/news': {
           target: 'https://docker-n8n-xngg.onrender.com',
           changeOrigin: true,
-          secure: false,
-          // Forza il path esatto verso l'endpoint MCP di n8n, 
-          // ignorando i parametri query originali nel path inoltrato
-          rewrite: () => '/mcp-server/http',
+          secure: true,
+          // Utilizziamo /mcp/http (o /mcp-server/http se necessario)
+          rewrite: () => '/mcp/http',
           configure: (proxy: any) => {
             proxy.on('proxyReq', (proxyReq: any, req: any) => {
-              // Estraiamo la query dall'URL originale (req.url) prima che venga riscritta
               let searchQuery = 'AI news';
               try {
                 const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
                 searchQuery = url.searchParams.get('q') || 'AI news';
               } catch (e) {
-                console.warn('[ViteProxy] Errore estrazione query:', e);
+                searchQuery = 'AI news';
               }
 
-              // Trasformiamo la GET in POST per l'interfaccia MCP
               proxyReq.method = 'POST';
               proxyReq.setHeader('Authorization', `Bearer ${mcpToken}`);
               proxyReq.setHeader('Content-Type', 'application/json');
-              proxyReq.setHeader('Accept', 'application/json');
+              
+              // CRITICO: Risoluzione Errore 406
+              // Il server richiede esplicitamente entrambi i tipi MIME
+              proxyReq.setHeader('Accept', 'application/json, application/json-rpc');
 
               const mcpRequest = {
                 jsonrpc: '2.0',
-                id: `req_${Date.now()}`,
+                id: `ui_${Date.now()}`,
                 method: 'tools/call',
                 params: {
                   name: 'get_ai_news',
@@ -59,19 +59,15 @@ export default defineConfig(({ mode }) => {
               const body = JSON.stringify(mcpRequest);
               proxyReq.setHeader('Content-Length', Buffer.byteLength(body));
               
-              // Scriviamo il body direttamente nel proxy stream.
-              // Poiché la richiesta originale è una GET, non ci sono dati che collidono.
               proxyReq.write(body);
-              // Non chiamiamo proxyReq.end() qui se vogliamo che il middleware gestisca il piping standard,
-              // ma per una GET->POST con body iniettato, è sicuro farlo o lasciare che finisca.
-              // node-http-proxy lo gestirà correttamente.
+              proxyReq.end();
             });
 
             proxy.on('error', (err: any, _req: any, res: any) => {
-              console.error('[ViteProxy] Errore di inoltro:', err.message);
+              console.error('[ViteProxy] Errore:', err.message);
               if (!res.headersSent) {
                 res.writeHead(502, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ error: 'Proxy Gateway Error', details: err.message }));
+                res.end(JSON.stringify({ error: 'Proxy Failure', details: err.message }));
               }
             });
           }
@@ -86,14 +82,14 @@ export default defineConfig(({ mode }) => {
         '/api/news': {
           target: 'https://docker-n8n-xngg.onrender.com',
           changeOrigin: true,
-          secure: false,
-          rewrite: () => '/mcp-server/http',
+          secure: true,
+          rewrite: () => '/mcp/http',
           configure: (proxy: any) => {
-            // Stessa configurazione del server dev
             proxy.on('proxyReq', (proxyReq: any, req: any) => {
               proxyReq.method = 'POST';
               proxyReq.setHeader('Authorization', `Bearer ${mcpToken}`);
               proxyReq.setHeader('Content-Type', 'application/json');
+              proxyReq.setHeader('Accept', 'application/json, application/json-rpc');
               const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
               const q = url.searchParams.get('q') || 'AI news';
               const body = JSON.stringify({
@@ -102,6 +98,7 @@ export default defineConfig(({ mode }) => {
               });
               proxyReq.setHeader('Content-Length', Buffer.byteLength(body));
               proxyReq.write(body);
+              proxyReq.end();
             });
           }
         }

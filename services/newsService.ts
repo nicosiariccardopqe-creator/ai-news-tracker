@@ -9,41 +9,39 @@ import { MOCK_INITIAL_NEWS } from '../constants';
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   try {
     const query = params.tags?.[0] || 'AI news';
-    
-    // URL relativo intercettato da vite.config.ts
     const url = `/api/news?q=${encodeURIComponent(query)}`;
     
-    console.debug(`[NewsService] Richiesta al proxy: ${url}`);
+    console.debug(`[NewsService] Fetching: ${url}`);
 
     const response = await fetch(url, {
       method: 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'Cache-Control': 'no-cache'
+      headers: { 
+        'Accept': 'application/json, application/json-rpc' 
       }
     });
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Impossibile leggere il corpo della risposta');
-      console.error(`[NewsService] Errore HTTP ${response.status}: ${errorText}`);
+      const errorText = await response.text().catch(() => 'No response body');
+      console.error(`[NewsService] HTTP ${response.status}: ${errorText}`);
       
-      if (response.status === 404) {
-        throw new Error(`404: L'endpoint n8n non è stato trovato. Verifica il percorso '/mcp-server/http' sul server target.`);
+      if (response.status === 406) {
+        throw new Error(`406: Il server n8n richiede header Accept specifici (json + json-rpc).`);
       }
-      
-      throw new Error(`Server Error: ${response.status} - ${errorText.substring(0, 100)}`);
+      if (response.status === 404) {
+        throw new Error(`404: Endpoint non trovato su n8n. Verifica se il path è '/mcp/http' o '/mcp-server/http'.`);
+      }
+      throw new Error(`Server Error ${response.status}: ${errorText.substring(0, 100)}`);
     }
 
     const result = await response.json();
 
     if (result.error) {
-      const msg = typeof result.error === 'string' ? result.error : (result.error.message || JSON.stringify(result.error));
-      throw new Error(msg);
+      throw new Error(typeof result.error === 'string' ? result.error : (result.error.message || 'Unknown MCP error'));
     }
 
     let rawItems: any[] = [];
     
-    // Parsing della risposta standard MCP JSON-RPC
+    // Parsing risposta MCP JSON-RPC
     if (result?.result?.content && Array.isArray(result.result.content)) {
       const textPart = result.result.content.find((c: any) => c.type === 'text');
       if (textPart?.text) {
@@ -51,7 +49,6 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
           const parsed = JSON.parse(textPart.text);
           rawItems = Array.isArray(parsed) ? parsed : (parsed.items || parsed.news || []);
         } catch (e) {
-          console.warn('[NewsService] Errore parsing contenuto MCP:', e);
           rawItems = [];
         }
       }
@@ -64,7 +61,6 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     }
 
     if (!rawItems.length) {
-      console.warn('[NewsService] Nessun dato ricevuto.');
       return createFallbackResponse('empty-result');
     }
 
@@ -75,7 +71,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
       paging: { next_cursor: null, count: rawItems.length }
     };
   } catch (err: any) {
-    console.error('[NewsService] Errore critico:', err.message);
+    console.error('[NewsService] Error:', err.message);
     return createFallbackResponse('proxy-failure', err.message);
   }
 }

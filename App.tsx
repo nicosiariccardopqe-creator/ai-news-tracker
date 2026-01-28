@@ -1,4 +1,3 @@
-
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { AppState, NewsItem } from './types';
 import { fetchNews, trackTelemetry } from './services/newsService';
@@ -8,6 +7,8 @@ import { CATEGORIES } from './constants';
 
 const ErrorModal: React.FC<{ isOpen: boolean; onClose: () => void; errorDetail: string }> = ({ isOpen, onClose, errorDetail }) => {
   if (!isOpen) return null;
+  const is404 = errorDetail.includes('404');
+
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/80 backdrop-blur-md animate-in fade-in duration-300">
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl overflow-hidden border border-slate-200">
@@ -17,8 +18,8 @@ const ErrorModal: React.FC<{ isOpen: boolean; onClose: () => void; errorDetail: 
               <svg className="w-5 h-5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
             </div>
             <div>
-              <h3 className="text-white font-extrabold uppercase tracking-widest text-[12px]">Errore di Connessione</h3>
-              <p className="text-red-100 text-[10px] font-medium opacity-80">Rilevato possibile blocco CORS</p>
+              <h3 className="text-white font-extrabold uppercase tracking-widest text-[12px]">Errore del Server</h3>
+              <p className="text-red-100 text-[10px] font-medium opacity-80">{is404 ? 'Endpoint non trovato' : 'Connessione fallita'}</p>
             </div>
           </div>
           <button onClick={onClose} className="text-white/60 hover:text-white transition-colors p-2 hover:bg-white/10 rounded-full">
@@ -27,21 +28,33 @@ const ErrorModal: React.FC<{ isOpen: boolean; onClose: () => void; errorDetail: 
         </div>
         <div className="p-8 space-y-6">
           <div className="space-y-2">
-            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Log di Debug:</p>
+            <p className="text-[11px] text-slate-500 font-bold uppercase tracking-wider">Messaggio di Errore:</p>
             <div className="bg-slate-950 p-5 rounded-lg border border-slate-800 font-mono text-[11px] text-emerald-400 break-words whitespace-pre-wrap leading-relaxed shadow-inner overflow-y-auto max-h-72">
-              {errorDetail || "Failed to fetch: Il server n8n non ha risposto correttamente alle politiche CORS del browser."}
+              {errorDetail}
             </div>
           </div>
           <div className="p-4 bg-amber-50 border-l-4 border-amber-400 rounded-r-lg">
-            <h4 className="text-amber-800 text-xs font-bold mb-1 uppercase tracking-tight">Come risolvere?</h4>
-            <p className="text-[12px] text-amber-700 leading-relaxed">
-              Questo errore accade quando il server remoto non permette al browser di leggere i dati per sicurezza. Abbiamo attivato un <strong>Proxy CORS automatico</strong>, ma se il problema persiste, prova a ricaricare la pagina o a svuotare la cache.
-            </p>
+            <h4 className="text-amber-800 text-xs font-bold mb-1 uppercase tracking-tight">Cosa controllare?</h4>
+            <ul className="text-[12px] text-amber-700 leading-relaxed list-disc ml-4 space-y-1">
+              {is404 ? (
+                <>
+                  <li>Assicurati che l'istanza <strong>n8n</strong> su Render sia attiva e non in pausa.</li>
+                  <li>Verifica che il path nel workflow n8n sia esattamente <code>/mcp-server/http</code>.</li>
+                  <li>Il proxy ha tentato di inviare una POST a quell'indirizzo, ma ha ricevuto un 404.</li>
+                </>
+              ) : (
+                <>
+                  <li>Verifica la tua connessione internet.</li>
+                  <li>Controlla se il server n8n ha raggiunto il limite di memoria o CPU.</li>
+                  <li>Il proxy Vite potrebbe non riuscire a raggiungere il dominio <code>docker-n8n-xngg.onrender.com</code>.</li>
+                </>
+              )}
+            </ul>
           </div>
         </div>
         <div className="bg-slate-50 px-8 py-5 border-t border-slate-100 flex flex-wrap justify-end gap-3">
-          <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-slate-100 transition-all">Pulisci & Ricarica</button>
-          <button onClick={onClose} className="px-8 py-2.5 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-black transition-all shadow-xl">Chiudi</button>
+          <button onClick={() => { localStorage.clear(); window.location.reload(); }} className="px-5 py-2.5 bg-white border border-slate-200 text-slate-600 text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-slate-100 transition-all">Ricarica Pagina</button>
+          <button onClick={onClose} className="px-8 py-2.5 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded-lg hover:bg-black transition-all shadow-xl">Ho capito</button>
         </div>
       </div>
     </div>
@@ -65,8 +78,6 @@ const App: React.FC = () => {
     if (isRefreshing) return;
     
     setIsRefreshing(true);
-    
-    // Pulizia Immediata: Svuotiamo le news e mettiamo in loading per feedback visivo
     if (!isBackground) {
       setItems([]); 
       setStatus(AppState.LOADING);
@@ -85,7 +96,6 @@ const App: React.FC = () => {
       setSourceVersion(response.source_version);
       setStatus(AppState.SUCCESS);
       
-      // Se è un fallback di errore, mostriamo il modal
       if (response.source_version.includes('failure')) {
         setIsErrorModalOpen(true);
       }
@@ -135,8 +145,9 @@ const App: React.FC = () => {
   const isLive = sourceVersion.includes('live') && !sourceVersion.includes('failure');
 
   const getErrorMessage = () => {
+    if (sourceVersion.includes('404')) return 'Endpoint 404';
     if (sourceVersion.includes('timeout')) return 'Timeout 60s';
-    if (sourceVersion.includes('failure')) return 'Errore CORS';
+    if (sourceVersion.includes('failure')) return 'Errore Connessione';
     if (sourceVersion.includes('empty')) return 'Nessun Dato';
     return 'Offline';
   };
@@ -163,8 +174,8 @@ const App: React.FC = () => {
                     <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                   </div>
                   <div>
-                    <p className="text-[11px] font-extrabold uppercase tracking-widest text-amber-700">Database di Backup Attivo ({getErrorMessage()})</p>
-                    <p className="text-[12px] font-medium opacity-90 max-w-lg">Sincronizzazione Live non riuscita. Visualizzando notizie pre-caricate per evitare interruzioni.</p>
+                    <p className="text-[11px] font-extrabold uppercase tracking-widest text-amber-700">Modalità Fallback Attiva ({getErrorMessage()})</p>
+                    <p className="text-[12px] font-medium opacity-90 max-w-lg">Impossibile collegarsi a n8n. Visualizzando dati di backup per garantire la continuità del servizio.</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-3 w-full md:w-auto">
@@ -172,14 +183,14 @@ const App: React.FC = () => {
                     onClick={() => setIsErrorModalOpen(true)}
                     className="flex-1 md:flex-none px-4 py-2 text-amber-800 hover:bg-amber-200 text-[10px] font-bold uppercase tracking-widest rounded-lg transition-all border border-amber-300/50"
                   >
-                    Diagnostica
+                    Vedi Dettagli
                   </button>
                   <button 
                     onClick={() => handleRefresh()}
                     disabled={isRefreshing}
                     className="flex-1 md:flex-none px-6 py-2 bg-amber-600 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest hover:bg-amber-700 transition-all disabled:opacity-50 shadow-lg active:scale-95"
                   >
-                    {isRefreshing ? 'Pulizia...' : 'Riprova Live'}
+                    {isRefreshing ? 'In corso...' : 'Riprova Live'}
                   </button>
                 </div>
               </div>
@@ -219,7 +230,7 @@ const App: React.FC = () => {
 
               <div className="flex items-center gap-8 pl-8 border-l border-slate-100">
                 <div className="text-right hidden md:block">
-                  <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Auto-Refresh</span>
+                  <span className="block text-[9px] font-bold text-slate-400 uppercase tracking-widest mb-1.5">Auto-Sync</span>
                   <button 
                     onClick={() => setIsAutoSyncEnabled(!isAutoSyncEnabled)}
                     className={`w-12 h-6 rounded-full relative p-1 transition-all duration-500 shadow-inner ${isAutoSyncEnabled ? 'bg-emerald-500' : 'bg-slate-200'}`}
@@ -230,7 +241,7 @@ const App: React.FC = () => {
                 <button 
                   onClick={() => handleRefresh()}
                   className={`w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center shadow-2xl hover:bg-black active:scale-90 transition-all shrink-0 group-hover:rotate-12 ${isRefreshing ? 'animate-spin opacity-50' : ''}`}
-                  title="Aggiorna Forzato"
+                  title="Aggiorna"
                   disabled={isRefreshing}
                 >
                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -243,7 +254,7 @@ const App: React.FC = () => {
                 <div className="relative flex-1 w-full">
                   <input 
                     type="text" 
-                    placeholder="Filtra notizie..."
+                    placeholder="Filtra tra i risultati..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="w-full h-14 pl-14 pr-12 bg-slate-100/50 rounded-xl text-sm font-medium focus:outline-none focus:ring-4 focus:ring-slate-900/5 transition-all border border-slate-200/50 placeholder:text-slate-400"
@@ -290,8 +301,8 @@ const App: React.FC = () => {
                 <div className="col-span-full py-32 text-center">
                   <div className="bg-white/70 backdrop-blur-md rounded-3xl p-12 border border-white/50 inline-block w-full max-w-md shadow-2xl">
                     <h3 className="text-2xl font-black text-slate-900 tracking-tight">Nessuna Notizia</h3>
-                    <p className="text-slate-500 mt-4 text-sm font-medium">I server remoti non hanno risposto. Premi Aggiorna per tentare una nuova connessione proxy.</p>
-                    <button onClick={() => handleRefresh()} className="mt-8 px-8 py-3 bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Sincronizza</button>
+                    <p className="text-slate-500 mt-4 text-sm font-medium">I criteri di ricerca o i filtri non hanno prodotto risultati.</p>
+                    <button onClick={() => {setActiveTag('TUTTE'); setSearchQuery('');}} className="mt-8 px-8 py-3 bg-slate-900 text-white text-[11px] font-black uppercase tracking-widest rounded-xl hover:bg-black transition-all">Reset Filtri</button>
                   </div>
                 </div>
               )}
@@ -306,7 +317,7 @@ const App: React.FC = () => {
                   <div className="flex items-center gap-2 mt-2">
                     <div className={`w-2 h-2 rounded-full ${isLive ? 'bg-emerald-500' : 'bg-amber-500'} animate-pulse`}></div>
                     <p className="text-[10px] font-black text-zinc-600 uppercase tracking-widest">
-                      {isLive ? 'MCP STREAM ACTIVE' : 'CORS PROTECTION MODE'}
+                      {isLive ? 'SYSTEM CONNECTED' : 'SYSTEM OFFLINE'}
                     </p>
                   </div>
                 </div>
@@ -346,7 +357,7 @@ const App: React.FC = () => {
                   {sourceVersion.split('::')[0]}
                 </div>
                 <p className="text-[8px] font-bold text-zinc-700 text-center uppercase tracking-widest mt-6 opacity-40">
-                  AI Briefing Engine v2.4.5
+                  AI Briefing Engine v2.5.0
                 </p>
               </div>
             </div>

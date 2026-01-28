@@ -1,3 +1,4 @@
+
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { defineConfig, loadEnv } from 'vite';
@@ -13,14 +14,7 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
       allowedHosts: true,
-      proxy: {
-        // Proxy per lo sviluppo locale verso il backend Node
-        '/api': {
-          target: 'http://localhost:4000',
-          changeOrigin: true,
-          secure: false,
-        }
-      }
+      // Proxy rimosso come richiesto
     },
     preview: {
       port: 3000,

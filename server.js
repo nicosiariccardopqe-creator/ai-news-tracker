@@ -1,6 +1,7 @@
 import express from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import fs from 'fs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -91,18 +92,22 @@ app.post('/api/mcp/news', async (req, res) => {
   }
 });
 
+// Gestione file statici
 const distPath = path.join(__dirname, 'dist');
-app.use(express.static(distPath));
+
+if (fs.existsSync(distPath)) {
+  app.use(express.static(distPath));
+}
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
-  // Se siamo in produzione su Render, serviamo il file dalla cartella dist
-  res.sendFile(path.join(distPath, 'index.html'), (err) => {
-    if (err) {
-      // Se il file non esiste (perché non abbiamo ancora buildato), diamo un errore pulito
-      res.status(500).send("L'applicazione frontend non è ancora stata compilata. Esegui 'npm run build'.");
-    }
-  });
+  
+  const indexPath = path.join(distPath, 'index.html');
+  if (fs.existsSync(indexPath)) {
+    res.sendFile(indexPath);
+  } else {
+    res.status(500).send(`Frontend non ancora buildato o cartella dist non trovata in: ${distPath}. Esegui 'npm run build' prima di avviare il server.`);
+  }
 });
 
 app.listen(PORT, '0.0.0.0', () => {

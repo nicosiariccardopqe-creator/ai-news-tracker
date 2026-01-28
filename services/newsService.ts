@@ -10,27 +10,25 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
   try {
     const query = params.tags?.[0] || 'AI news';
     
-    // Cambiamo in POST per essere più coerenti con ciò che il proxy dovrà fare
-    // e per evitare che alcuni server ignorino il body di una GET trasformata
+    // URL relativo intercettato da vite.config.ts
     const url = `/api/news?q=${encodeURIComponent(query)}`;
     
+    console.debug(`[NewsService] Richiesta al proxy: ${url}`);
+
     const response = await fetch(url, {
-      method: 'POST', // Utilizziamo POST direttamente dal client
+      method: 'GET',
       headers: {
         'Accept': 'application/json',
-        'Content-Type': 'application/json'
-      },
-      // Inviamo un body minimo, il proxy lo sovrascriverà con quello corretto per n8n
-      body: JSON.stringify({ query })
+        'Cache-Control': 'no-cache'
+      }
     });
 
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'No response body');
-      console.error(`[NewsService] Request failed with status ${response.status}: ${errorText}`);
+      const errorText = await response.text().catch(() => 'Impossibile leggere il corpo della risposta');
+      console.error(`[NewsService] Errore HTTP ${response.status}: ${errorText}`);
       
-      // Se è un 404, il server target non ha la rotta specificata nel proxy
       if (response.status === 404) {
-        throw new Error(`Server Error: 404 - Rotta non trovata sul server n8n. Verifica l'URL del proxy.`);
+        throw new Error(`404: L'endpoint n8n non è stato trovato. Verifica il percorso '/mcp-server/http' sul server target.`);
       }
       
       throw new Error(`Server Error: ${response.status} - ${errorText.substring(0, 100)}`);
@@ -66,7 +64,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
     }
 
     if (!rawItems.length) {
-      console.warn('[NewsService] Nessuna news ricevuta dal server.');
+      console.warn('[NewsService] Nessun dato ricevuto.');
       return createFallbackResponse('empty-result');
     }
 
@@ -77,8 +75,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
       paging: { next_cursor: null, count: rawItems.length }
     };
   } catch (err: any) {
-    console.error('[NewsService] Errore nel recupero news:', err.message);
-    // In caso di errore critico, restituiamo i dati mock per non rompere la UI
+    console.error('[NewsService] Errore critico:', err.message);
     return createFallbackResponse('proxy-failure', err.message);
   }
 }

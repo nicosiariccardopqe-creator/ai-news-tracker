@@ -100,25 +100,25 @@ app.post('/api/mcp/news', async (req, res) => {
   }
 });
 
-// Risoluzione dinamica della cartella dist
+// Risoluzione dinamica: serve da 'dist' se esiste, altrimenti dalla radice
 const distPath = path.resolve(__dirname, 'dist');
-if (fs.existsSync(distPath)) {
-  app.use(express.static(distPath));
-}
+const rootPath = path.resolve(__dirname);
+
+app.use(express.static(distPath));
+app.use(express.static(rootPath)); // Permette di caricare index.tsx e altri file dalla radice
 
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
-  const indexPath = path.join(distPath, 'index.html');
-  if (fs.existsSync(indexPath)) {
-    res.sendFile(indexPath);
+  
+  const distIndex = path.join(distPath, 'index.html');
+  const rootIndex = path.join(rootPath, 'index.html');
+  
+  if (fs.existsSync(distIndex)) {
+    res.sendFile(distIndex);
+  } else if (fs.existsSync(rootIndex)) {
+    res.sendFile(rootIndex);
   } else {
-    res.status(200).send(`
-      <div style="font-family: sans-serif; padding: 40px; text-align: center; background: #fbedb9; min-height: 100vh;">
-        <h2>Inizializzazione Sistema...</h2>
-        <p>Il frontend è in fase di compilazione. L'app sarà pronta tra pochi istanti.</p>
-        <script>setTimeout(() => window.location.reload(), 5000);</script>
-      </div>
-    `);
+    res.status(500).send("File index.html non trovato nella radice del progetto.");
   }
 });
 

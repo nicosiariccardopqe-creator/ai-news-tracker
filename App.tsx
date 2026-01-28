@@ -75,7 +75,7 @@ const App: React.FC = () => {
   const autoSyncTimerRef = useRef<number | null>(null);
 
   const handleRefresh = useCallback(async (isInitial = false, isBackground = false) => {
-    if (isRefreshing) return;
+    if (isRefreshing && !isInitial) return;
     
     setIsRefreshing(true);
     if (!isBackground) {

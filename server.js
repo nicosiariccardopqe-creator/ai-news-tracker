@@ -51,7 +51,7 @@ app.post('/api/mcp/news', async (req, res) => {
 
   try {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 30000); // 30 secondi timeout interno
+    const timeout = setTimeout(() => controller.abort(), 35000);
 
     const formattedToken = token.startsWith('Bearer ') ? token : `Bearer ${token}`;
 

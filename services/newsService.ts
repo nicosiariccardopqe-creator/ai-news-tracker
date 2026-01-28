@@ -2,34 +2,50 @@
 import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
+const MCP_SERVER_URL = 'https://docker-n8n-xngg.onrender.com/mcp/http';
+
 /**
  * Funzione principale per recuperare le news.
- * Utilizza l'endpoint /api/news gestito dal proxy di Vite (Node.js)
+ * Comunica direttamente con l'endpoint MCP di n8n.
  */
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   try {
     const query = params.tags?.[0] || 'AI news';
-    const url = `/api/news?q=${encodeURIComponent(query)}`;
     
-    console.debug(`[NewsService] Fetching: ${url}`);
+    // CRITICO: Utilizziamo il percorso letterale 'process.env.MCP_TOKEN' 
+    // affinché il plugin 'define' di Vite possa sostituirlo staticamente nel codice.
+    // L'accesso tramite oggetto (process.env as any) fallisce nel browser.
+    const token = process.env.MCP_TOKEN || '';
 
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: { 
-        'Accept': 'application/json, application/json-rpc' 
+    console.debug(`[NewsService] Calling MCP Server: ${MCP_SERVER_URL} for query: ${query}`);
+
+    const mcpRequest = {
+      jsonrpc: '2.0',
+      id: `req_${Date.now()}`,
+      method: 'tools/call',
+      params: {
+        name: 'get_ai_news',
+        arguments: {
+          query: query,
+          limit: 30,
+          force_refresh: true
+        }
       }
+    };
+
+    const response = await fetch(MCP_SERVER_URL, {
+      method: 'POST',
+      headers: { 
+        'Authorization': `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        'Accept': 'application/json, application/json-rpc, text/event-stream' 
+      },
+      body: JSON.stringify(mcpRequest)
     });
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => 'No response body');
       console.error(`[NewsService] HTTP ${response.status}: ${errorText}`);
-      
-      if (response.status === 406) {
-        throw new Error(`406: Il server n8n richiede header Accept specifici (json + json-rpc).`);
-      }
-      if (response.status === 404) {
-        throw new Error(`404: Endpoint non trovato su n8n. Il proxy ha tentato di contattare la root del server. Verifica se l'istanza n8n su Render è attiva.`);
-      }
       throw new Error(`Server Error ${response.status}: ${errorText.substring(0, 100)}`);
     }
 
@@ -49,30 +65,32 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
           const parsed = JSON.parse(textPart.text);
           rawItems = Array.isArray(parsed) ? parsed : (parsed.items || parsed.news || []);
         } catch (e) {
+          console.error('[NewsService] Error parsing MCP content text:', e);
           rawItems = [];
         }
       }
-    } else if (Array.isArray(result)) {
-      rawItems = result;
-    } else if (result?.items) {
-      rawItems = result.items;
     } else if (result?.result && Array.isArray(result.result)) {
       rawItems = result.result;
     }
 
     if (!rawItems.length) {
+      console.warn('[NewsService] No news items returned from MCP');
       return createFallbackResponse('empty-result');
     }
 
     return {
       generated_at: new Date().toISOString(),
-      source_version: 'vite-proxy-live',
+      source_version: 'direct-mcp-live',
       items: dedupeAndSort(rawItems.map(mapRawToNewsItem)),
       paging: { next_cursor: null, count: rawItems.length }
     };
   } catch (err: any) {
-    console.error('[NewsService] Error:', err.message);
-    return createFallbackResponse('proxy-failure', err.message);
+    console.error('[NewsService] Direct Fetch Error:', err.message);
+    // 'Failed to fetch' di solito indica un errore di rete o un blocco CORS nel browser.
+    const detailedMessage = err.message === 'Failed to fetch' 
+      ? 'Connessione Fallita (CORS o Rete). Il browser ha bloccato la richiesta diretta a n8n. Verifica se il server n8n permette le richieste dal dominio dell\'app.'
+      : err.message;
+    return createFallbackResponse('mcp-direct-failure', detailedMessage);
   }
 }
 

@@ -44,15 +44,19 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
 
             const mcpTarget = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
             
-            // Nuovo formato payload richiesto
+            // Struttura payload aderente a standard JSON-RPC (come da curl)
             const n8nPayload = {
-              name: "execute_workflow",
-              token: finalToken, // Inviato per compatibilità e visibilità
-              arguments: {
-                workflowId: "rvpkrwvBbd5NWLMt",
-                inputs: {
-                  type: "chat",
-                  chatInput: "Dammi le news su tecnologia e AI"
+              jsonrpc: "2.0",
+              id: 4,
+              method: "tools/call",
+              params: {
+                name: "execute_workflow",
+                arguments: {
+                  workflowId: "rvpkrwvBbd5NWLMt",
+                  inputs: {
+                    type: "chat",
+                    chatInput: "Dammi le news su tecnologia e AI"
+                  }
                 }
               }
             };
@@ -64,26 +68,29 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
 
             const headersLog = {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${maskedToken}`
+              'Authorization': `Bearer ${maskedToken}`,
+              'Accept': 'application/json, text/event-stream'
             };
 
-            const maskedPayload = {
+            // Prepariamo un payload per il log che mostri il token mascherato
+            const logPayload = {
               ...n8nPayload,
-              token: maskedToken
+              _debug_auth: `Bearer ${maskedToken}`
             };
 
-            proxyTrace.push(`[PROXY] === PREPARAZIONE CHIAMATA N8N ===`);
+            proxyTrace.push(`[PROXY] === PREPARAZIONE CHIAMATA N8N (JSON-RPC) ===`);
             proxyTrace.push(`[PROXY] Target: ${mcpTarget}`);
-            proxyTrace.push(`[PROXY] Tool (Name): ${n8nPayload.name}`);
+            proxyTrace.push(`[PROXY] Method: ${n8nPayload.method}`);
             proxyTrace.push(`[PROXY] Headers: ${JSON.stringify(headersLog)}`);
-            proxyTrace.push(`[PROXY] Full Payload (Masked Token): ${JSON.stringify(maskedPayload)}`);
+            proxyTrace.push(`[PROXY] Full Payload: ${JSON.stringify(logPayload)}`);
             proxyTrace.push(`[PROXY] =================================`);
 
             const n8nResponse = await fetch(mcpTarget, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${finalToken}`
+                'Authorization': `Bearer ${finalToken}`,
+                'Accept': 'application/json, text/event-stream'
               },
               body: JSON.stringify(n8nPayload)
             });

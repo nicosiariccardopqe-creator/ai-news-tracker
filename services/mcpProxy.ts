@@ -64,15 +64,19 @@ router.post("/news", async (req, res) => {
   }
 
   try {
-    // Nuovo formato payload richiesto
+    // Struttura payload conforme a JSON-RPC 2.0 come da curl
     const n8nPayload = {
-      name: "execute_workflow",
-      token: finalToken,
-      arguments: {
-        workflowId: "rvpkrwvBbd5NWLMt",
-        inputs: {
-          type: "chat",
-          chatInput: "Dammi le news su tecnologia e AI"
+      jsonrpc: "2.0",
+      id: 4,
+      method: "tools/call",
+      params: {
+        name: "execute_workflow",
+        arguments: {
+          workflowId: "rvpkrwvBbd5NWLMt",
+          inputs: {
+            type: "chat",
+            chatInput: "Dammi le news su tecnologia e AI"
+          }
         }
       }
     };
@@ -84,18 +88,19 @@ router.post("/news", async (req, res) => {
 
     const headersLog = {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${maskedToken}`
+      "Authorization": `Bearer ${maskedToken}`,
+      "Accept": "application/json, text/event-stream"
     };
 
-    const maskedPayload = {
+    const logPayload = {
       ...n8nPayload,
-      token: maskedToken
+      _debug_auth: `Bearer ${maskedToken}`
     };
 
-    addTrace(`=== PREPARAZIONE CHIAMATA N8N ===`);
-    addTrace(`-> Tool (Name): ${n8nPayload.name}`);
+    addTrace(`=== PREPARAZIONE CHIAMATA N8N (JSON-RPC) ===`);
+    addTrace(`-> JSON-RPC Method: ${n8nPayload.method}`);
     addTrace(`-> Headers: ${JSON.stringify(headersLog)}`);
-    addTrace(`-> Full Payload (Masked): ${JSON.stringify(maskedPayload)}`);
+    addTrace(`-> Full Payload (Masked Token): ${JSON.stringify(logPayload)}`);
     addTrace(`-> Target: ${MCP_TARGET}`);
     addTrace(`=================================`);
 
@@ -106,7 +111,6 @@ router.post("/news", async (req, res) => {
         headers: {
           "Content-Type": "application/json",
           "Accept": "application/json, text/event-stream",
-          "MCP-Protocol-Version": "2025-06-18",
           "Authorization": `Bearer ${finalToken}`
         },
         body: JSON.stringify(n8nPayload),

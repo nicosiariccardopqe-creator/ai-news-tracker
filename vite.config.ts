@@ -18,7 +18,6 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
         res.end(JSON.stringify({
           status: "online",
           mode: "vite-middleware-full-trace",
-          env_token_present: !!env.MCP_TOKEN,
           timestamp: new Date().toISOString()
         }));
         return;
@@ -34,12 +33,13 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
             const finalToken = env.MCP_TOKEN || data.token;
             const params = data.params || {};
 
-            proxyTrace.push(`[PROXY] Richiesta ricevuta per tag: ${JSON.stringify(params.tags || 'TUTTE')}`);
-
+            proxyTrace.push(`[PROXY] Richiesta ricevuta dal browser.`);
+            
             if (!finalToken) {
+              proxyTrace.push(`[PROXY] ERRORE: Token non configurato.`);
               res.statusCode = 401;
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ error: "MCP_TOKEN non trovato", trace: proxyTrace }));
+              res.end(JSON.stringify({ error: "MCP_TOKEN mancante nel proxy", trace: proxyTrace }));
               return;
             }
 
@@ -50,6 +50,10 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
               params: params
             };
 
+            proxyTrace.push(`[PROXY] Preparazione payload per n8n:`);
+            proxyTrace.push(`[PROXY] -> Metodo: NewsAI`);
+            proxyTrace.push(`[PROXY] -> Token: ${finalToken.substring(0, 4)}... (lunghezza: ${finalToken.length})`);
+            proxyTrace.push(`[PROXY] -> Params: ${JSON.stringify(params)}`);
             proxyTrace.push(`[PROXY] Inoltro a n8n: ${mcpTarget}`);
 
             const n8nResponse = await fetch(mcpTarget, {
@@ -75,10 +79,10 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('X-Proxy-Full-Trace', Buffer.from(JSON.stringify(proxyTrace)).toString('base64'));
             
-            // Garantiamo che la risposta sia sempre un oggetto JSON valido
-            const finalBody = typeof resultData === 'object' && resultData !== null 
-              ? { ...resultData, _proxy_trace: proxyTrace }
-              : { data: resultData, _proxy_trace: proxyTrace };
+            const finalBody = {
+              ...(typeof resultData === 'object' ? resultData : { data: resultData }),
+              _proxy_trace: proxyTrace
+            };
 
             res.end(JSON.stringify(finalBody));
           } catch (err: any) {

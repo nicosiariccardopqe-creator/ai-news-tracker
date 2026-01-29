@@ -53,13 +53,16 @@ const App: React.FC = () => {
 
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
-    addLog("Browser -> Chiamata a Node Server", "NETWORK");
+    
+    const currentParams = { tags: activeTag === 'TUTTE' ? [] : [activeTag] };
+    addLog(`Browser -> Invocazione tool: NewsAI`, "NETWORK", currentParams);
+    addLog(`Inoltro richiesta a Node Server...`, "NETWORK");
 
     abortControllerRef.current = new AbortController();
 
     try {
       const result = await fetchNews(
-        { tags: activeTag === 'TUTTE' ? [] : [activeTag] },
+        currentParams,
         undefined,
         abortControllerRef.current.signal
       );
@@ -72,7 +75,7 @@ const App: React.FC = () => {
       setItems(newsItems);
       setStatus(newsItems.length ? AppState.SUCCESS : AppState.EMPTY);
       setLastSyncTime(new Date().toLocaleString('it-IT'));
-      addLog(`Successo: ${newsItems.length} notizie caricate`, "SUCCESS");
+      addLog(`Ricevute ${newsItems.length} notizie dal server`, "SUCCESS");
 
     } catch (error: any) {
       if (error.name === 'AbortError') return;
@@ -142,7 +145,7 @@ const App: React.FC = () => {
                   type="button"
                   onClick={handleRefresh} 
                   className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-red-500' : 'bg-slate-900'} text-white group`}
-                  title={isRefreshing ? "Annulla" : "Sincronizza con n8n"}
+                  title={isRefreshing ? "Annulla" : "Sincronizza con n8n (Tool: NewsAI)"}
                  >
                    {isRefreshing ? (
                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -192,7 +195,7 @@ const App: React.FC = () => {
             <section className="bg-[#050505] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12">
               <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex items-center gap-4">
                 <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Full-Stack Data Pipeline</span>
+                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Full-Stack Data Pipeline (Tool: NewsAI)</span>
               </div>
               <div className="p-6 h-[250px] overflow-y-auto font-mono text-[11px] no-scrollbar bg-black/40">
                 {logHistory.length === 0 && <p className="text-zinc-700 italic">In attesa di attività...</p>}

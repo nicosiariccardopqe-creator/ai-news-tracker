@@ -31,38 +31,59 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       (async () => {
         try {
-          const body = await event.request.json();
+          // Clone del request per evitare errori di "body already used"
+          const requestClone = event.request.clone();
+          const body = await requestClone.json();
           const token = body.token;
           const params = body.params || {};
 
           if (!token) {
-            return new Response(JSON.stringify({ error: "Token mancante" }), { 
+            return new Response(JSON.stringify({ error: "Token mancante nel payload" }), { 
               status: 401, 
               headers: { 'Content-Type': 'application/json' } 
             });
           }
 
-          const response = await fetch(N8N_TARGET, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-            },
-            body: JSON.stringify({
-              method: "NewsAI",
-              token: token,
-              params: params
-            })
-          });
+          // Timeout per la fetch verso n8n (evita hanging infinito)
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 25000);
 
-          const data = await response.text();
-          return new Response(data, {
-            status: response.status,
-            headers: { 'Content-Type': 'application/json' }
-          });
+          try {
+            const response = await fetch(N8N_TARGET, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                method: "NewsAI",
+                token: token,
+                params: params
+              }),
+              signal: controller.signal
+            });
+
+            clearTimeout(timeoutId);
+            const data = await response.text();
+            
+            return new Response(data, {
+              status: response.status,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          } catch (fetchErr) {
+            clearTimeout(timeoutId);
+            return new Response(JSON.stringify({ 
+              error: "N8N_UNREACHABLE", 
+              detail: fetchErr.message,
+              target: N8N_TARGET 
+            }), {
+              status: 502,
+              headers: { 'Content-Type': 'application/json' }
+            });
+          }
         } catch (err) {
-          return new Response(JSON.stringify({ error: "SW Proxy Exception", detail: err.message }), {
-            status: 502,
+          return new Response(JSON.stringify({ error: "SW_INTERNAL_ERROR", detail: err.message }), {
+            status: 500,
             headers: { 'Content-Type': 'application/json' }
           });
         }

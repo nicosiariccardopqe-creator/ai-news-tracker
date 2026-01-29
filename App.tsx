@@ -1,14 +1,14 @@
 
-import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { AppState, NewsItem, ErrorDetail } from './types';
-import { fetchNews, fetchMockNews, checkProxyConnectivity, testDirectConnectivity } from './services/newsService';
+import { fetchNews, checkProxyConnectivity, testDirectConnectivity } from './services/newsService';
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
 import DebugModal from './components/DebugModal';
 import { CATEGORIES, MOCK_INITIAL_NEWS } from './constants';
 
 const App: React.FC = () => {
-  // Inizializziamo con i mock per non partire con l'app vuota, ma senza refresh automatico
+  // Avvio rigorosamente con i mock senza chiamate di rete automatiche
   const [items, setItems] = useState<NewsItem[]>(MOCK_INITIAL_NEWS);
   const [status, setStatus] = useState<AppState>(AppState.IDLE);
   const [activeTag, setActiveTag] = useState('TUTTE');
@@ -34,52 +34,18 @@ const App: React.FC = () => {
     setLogHistory(prev => [newLog, ...prev].slice(0, 100)); 
   };
 
-  const handleRunDiagnostics = async () => {
-    if (isDiagnosing) return;
-    setIsDiagnosing(true);
-    addLog("AVVIO DIAGNOSTICA V2...", "SYSTEM");
-
-    try {
-      const currentOrigin = window.location.origin;
-      addLog(`Endpoint base rilevato: ${currentOrigin}`, "DEBUG");
-
-      addLog("Fase 1: Verifica intercettazione Middleware (/api/status)...", "DEBUG");
-      try {
-        const proxyStatus = await checkProxyConnectivity();
-        addLog(`Proxy ONLINE (Mode: ${proxyStatus.mode})`, "SUCCESS", proxyStatus);
-      } catch (e: any) {
-        addLog(`ERRORE FASE 1: Il middleware non risponde su ${currentOrigin}/api/status. Ricevuto errore: ${e.message}`, "FATAL");
-        throw e;
-      }
-
-      addLog("Fase 2: Test connettività diretta Browser -> n8n (Solo ping)...", "DEBUG");
-      const direct = await testDirectConnectivity();
-      addLog(direct ? "n8n Host raggiungibile dal browser." : "n8n Host non risponde al browser (atteso se CORS attivo).", direct ? "SUCCESS" : "WARNING");
-
-      addLog("Fase 3: Test flusso dati completo...", "DEBUG");
-      const token = process.env.MCP_TOKEN;
-      const { data } = await fetchNews({ tags: ["DIAGNOSTICA"] }, token);
-      addLog(`Sincronizzazione completata: ${data.items?.length || 0} articoli ricevuti.`, "SUCCESS");
-      
-      addLog("DIAGNOSTICA COMPLETATA CON SUCCESSO.", "SUCCESS");
-    } catch (err: any) {
-      addLog(`DIAGNOSTICA FALLITA: ${err.message}`, "FATAL", { origin: window.location.origin }, err.stack);
-    } finally {
-      setIsDiagnosing(false);
-    }
-  };
-
   const handleStopRefresh = () => {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
       setIsRefreshing(false);
       setStatus(AppState.IDLE);
-      addLog("Sincronizzazione interrotta dall'utente.", 'SYSTEM');
+      addLog("SINC INTERROTTA DALL'UTENTE", 'SYSTEM');
     }
   };
 
   const handleRefresh = useCallback(async () => {
+    // Se è già in corso, il pulsante funge da STOP
     if (isRefreshing) {
       handleStopRefresh();
       return;
@@ -89,9 +55,8 @@ const App: React.FC = () => {
     setStatus(AppState.LOADING);
     
     const mcpToken = process.env.MCP_TOKEN;
-    addLog(`Richiesta aggiornamento inviata...`, 'NETWORK');
+    addLog(`Avvio sincronizzazione...`, 'NETWORK');
 
-    // Inizializza l'AbortController per questa sessione
     abortControllerRef.current = new AbortController();
 
     try {
@@ -99,19 +64,45 @@ const App: React.FC = () => {
       const newsItems = data.items || [];
       setItems(newsItems);
       setStatus(newsItems.length ? AppState.SUCCESS : AppState.EMPTY);
-      addLog(`Aggiornamento riuscito: ${newsItems.length} news caricate.`, 'SUCCESS');
+      addLog(`Sincronizzazione completata: ${newsItems.length} news caricate.`, 'SUCCESS');
     } catch (error: any) {
       if (error.message.includes("interrotta")) {
-        // Log già gestito da handleStopRefresh
+        // Silenzioso, gestito da handleStopRefresh
       } else {
-        addLog(`Aggiornamento fallito: ${error.message}`, 'ERROR');
-        // Non sovrascriviamo con i mock se è un errore di rete per permettere di vedere l'errore nel terminale
+        // In caso di 502 o altri errori, mostriamo il dettaglio
+        addLog(`ERRORE SYNC: ${error.message}`, 'ERROR', { detail: "Controlla il server n8n o il token" });
+        setStatus(AppState.ERROR);
       }
     } finally {
       setIsRefreshing(false);
       abortControllerRef.current = null;
     }
   }, [isRefreshing]);
+
+  const handleRunDiagnostics = async () => {
+    if (isDiagnosing) return;
+    setIsDiagnosing(true);
+    addLog("AVVIO DIAGNOSTICA STACK...", "SYSTEM");
+
+    try {
+      addLog("Verifica Service Worker Proxy...", "DEBUG");
+      const proxyStatus = await checkProxyConnectivity();
+      addLog(`Proxy STATUS: ${proxyStatus.status} (${proxyStatus.mode})`, "SUCCESS");
+
+      addLog("Test connettività n8n...", "DEBUG");
+      const direct = await testDirectConnectivity();
+      addLog(direct ? "n8n Reachable" : "n8n Unreachable (CORS?)", direct ? "SUCCESS" : "WARNING");
+
+      addLog("Test Fetch News (DIAG)...", "DEBUG");
+      const token = process.env.MCP_TOKEN;
+      await fetchNews({ tags: ["DIAG"] }, token);
+      addLog("Flusso dati completo OK.", "SUCCESS");
+    } catch (err: any) {
+      addLog(`FALLIMENTO: ${err.message}`, "FATAL", {}, err.stack);
+    } finally {
+      setIsDiagnosing(false);
+    }
+  };
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -145,18 +136,20 @@ const App: React.FC = () => {
                   </div>
                </div>
                
-               {/* Pulsante Dual-Action: Refresh / Stop */}
+               {/* PULSANTE DUAL ACTION: REFRESH O STOP */}
                <button 
                 onClick={handleRefresh} 
-                className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-900 hover:bg-black'} text-white`}
+                className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-900 hover:bg-black'} text-white shadow-2xl`}
                >
                  {isRefreshing ? (
+                   /* ICONA STOP (X) */
                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
                    </svg>
                  ) : (
+                   /* ICONA REFRESH */
                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                    </svg>
                  )}
                </button>
@@ -194,6 +187,7 @@ const App: React.FC = () => {
               )}
             </div>
 
+            {/* TERMINALE DIAGNOSTICO */}
             <section className="bg-[#050505] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12">
               <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex justify-between items-center">
                 <div className="flex items-center gap-4">
@@ -204,11 +198,11 @@ const App: React.FC = () => {
                   <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">System Diagnostics Terminal</span>
                 </div>
                 <button onClick={handleRunDiagnostics} disabled={isDiagnosing} className="px-4 py-1.5 bg-blue-600 text-white text-[9px] font-black uppercase rounded-lg">
-                  {isDiagnosing ? 'DIAGNOSTICA IN CORSO...' : 'RE-TEST STACK'}
+                  {isDiagnosing ? 'DIAG IN CORSO...' : 'RE-TEST STACK'}
                 </button>
               </div>
               <div className="p-6 h-[350px] overflow-y-auto font-mono text-[11px] leading-relaxed no-scrollbar bg-black/40">
-                {logHistory.length === 0 && <div className="text-zinc-700 italic">In attesa di eventi...</div>}
+                {logHistory.length === 0 && <div className="text-zinc-700 italic">In attesa di eventi... Premi "Refresh" o "Re-test"</div>}
                 {logHistory.map((log, i) => (
                   <div key={i} onClick={() => { setSelectedLog(log); setIsDebugOpen(true); }} className="flex items-center gap-4 py-2.5 hover:bg-white/5 cursor-pointer px-4 rounded-xl transition-all border-b border-white/5 last:border-0">
                     <span className="text-zinc-600 shrink-0">[{log.timestamp}]</span>

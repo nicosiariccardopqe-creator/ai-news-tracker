@@ -5,7 +5,7 @@ import { fetchNews, checkProxyStatus, MCP_ENDPOINT } from './services/newsServic
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
 import DebugModal from './components/DebugModal';
-import { CATEGORIES, MOCK_INITIAL_NEWS } from './constants';
+import { CATEGORIES, MOCK_INITIAL_NEWS, N8N_UNREACHABLE } from './constants';
 
 const App: React.FC = () => {
   const [items, setItems] = useState<NewsItem[]>(MOCK_INITIAL_NEWS);
@@ -52,36 +52,49 @@ const App: React.FC = () => {
     setStatus(AppState.LOADING);
     
     const params = { tags: activeTag === 'TUTTE' ? [] : [activeTag] };
+    const currentToken = process.env.MCP_TOKEN || 'MISSING';
 
-    // LOG DETTAGLIATO DEL PAYLOAD INIZIALE
-    addLog(`Avvio sincronizzazione...`, 'NETWORK', { 
-      step: "1. Browser -> Endpoint",
+    // STEP 1: Browser -> Proxy
+    addLog(`[STEP 1] Browser -> Proxy`, 'NETWORK', { 
       endpoint: MCP_ENDPOINT,
-      payload: { params, token: "REDACTED (Using Server ENV)" },
-      info: "Il token MCP_TOKEN verrà iniettato dal Proxy Server-Side."
+      token_in_use: currentToken,
+      request_payload: { params, token: currentToken }
     });
 
     abortControllerRef.current = new AbortController();
 
     try {
-      const { data } = await fetchNews(params, undefined, abortControllerRef.current.signal);
-      const newsItems = data.items || [];
+      const result = await fetchNews(params, undefined, abortControllerRef.current.signal);
+      
+      // STEP 2 & 3: Mostriamo il trace del server se disponibile
+      if (result.serverTrace) {
+        result.serverTrace.forEach(t => {
+          const type = t.step === 'N8N_RESPONDED' ? 'SUCCESS' : 'DEBUG';
+          addLog(`[SERVER] ${t.step}`, type, t);
+        });
+      }
+
+      const newsItems = result.data.items || [];
       setItems(newsItems);
       setStatus(newsItems.length ? AppState.SUCCESS : AppState.EMPTY);
       
-      addLog(`Successo: Ricevuti ${newsItems.length} elementi.`, 'SUCCESS', { 
-        step: "3. Proxy -> n8n -> Browser",
-        items_count: newsItems.length,
-        version: data.source_version,
-        generated_at: data.generated_at
+      addLog(`[STEP 4] Sincronizzazione Completata`, 'SUCCESS', { 
+        count: newsItems.length,
+        full_response: result.data
       });
+
     } catch (error: any) {
       if (error.name === 'AbortError') return;
      
-      addLog(`ERRORE FLOW: ${error.message}`, 'ERROR', { 
-        error_details: error.message,
-        request_params: params,
-        hint: "Verifica che MCP_TOKEN sia impostato correttamente nel server."
+      // Se l'errore contiene il trace del server, lo stampiamo
+      if (error.serverTrace) {
+        error.serverTrace.forEach((t: any) => addLog(`[SERVER-ERR] ${t.step}`, 'ERROR', t));
+      }
+
+      addLog(`FALLIMENTO: ${error.message}`, 'ERROR', { 
+        code: N8N_UNREACHABLE,
+        error_object: error,
+        active_token: currentToken
       }, error.stack);
       setStatus(AppState.ERROR);
     } finally {
@@ -93,34 +106,26 @@ const App: React.FC = () => {
   const handleRunDiagnostics = async () => {
     if (isDiagnosing) return;
     setIsDiagnosing(true);
-    addLog("ESECUZIONE TEST STACK (3-STEP)...", "SYSTEM");
+    addLog("AVVIO DIAGNOSTICA FULL-STACK...", "SYSTEM");
 
     try {
-      // STEP 1: Browser -> Endpoint
-      addLog("STEP 1: Chiamata Endpoint Browser...", "DEBUG");
+      // 1. Browser Check
+      addLog("TEST 1: Verifica endpoint locale /api/status", "DEBUG");
       const statusRes = await checkProxyStatus();
-      addLog("Step 1 OK: Endpoint locale raggiungibile.", "SUCCESS", { endpoint: "/api/status", response: statusRes });
+      addLog("TEST 1 OK: Endpoint raggiungibile", "SUCCESS", statusRes);
 
-      // STEP 2: Endpoint -> Proxy
-      addLog("STEP 2: Endpoint chiama il Proxy (Verifica Token)...", "DEBUG");
-      if (statusRes.env_token_present) {
-        addLog("Step 2 OK: Proxy configurato con MCP_TOKEN.", "SUCCESS", { token_present: true, mode: statusRes.mode });
-      } else {
-        addLog("Step 2 FAILED: MCP_TOKEN mancante nel Proxy.", "ERROR");
-        throw new Error("Token mancante nel server/middleware.");
-      }
-
-      // STEP 3: Proxy -> n8n
-      addLog("STEP 3: Il Proxy chiama n8n...", "DEBUG");
-      const diagParams = { tags: ["DIAG"] };
-      const { data } = await fetchNews(diagParams);
-      addLog("Step 3 OK: Risposta valida da n8n!", "SUCCESS", { 
-        data_count: data.items?.length || 0,
-        n8n_timestamp: data.generated_at 
+      // 2. Token Check
+      addLog(`TEST 2: Verifica Token [${process.env.MCP_TOKEN ? 'PRESENTE' : 'ASSENTE'}]`, "DEBUG", {
+        token: process.env.MCP_TOKEN || "NON DEFINITO"
       });
 
+      // 3. n8n End-to-End Check
+      addLog("TEST 3: Chiamata completa a n8n via Proxy", "DEBUG");
+      await handleRefresh();
+      addLog("DIAGNOSTICA COMPLETATA", "SUCCESS");
+
     } catch (err: any) {
-      addLog(`DIAGNOSTICA FALLITA: ${err.message}`, "FATAL", { error: err.message }, err.stack);
+      addLog(`DIAGNOSTICA FALLITA: ${err.message}`, "FATAL", err);
     } finally {
       setIsDiagnosing(false);
     }
@@ -206,7 +211,7 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {/* TERMINALE DIAGNOSTICO - ORA ALLINEATO AI 3 STEP */}
+            {/* TERMINALE DIAGNOSTICO MIGLIORATO */}
             <section className="bg-[#050505] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12">
               <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex justify-between items-center">
                 <div className="flex items-center gap-4">
@@ -214,18 +219,18 @@ const App: React.FC = () => {
                     <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/40"></div>
                     <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
                   </div>
-                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">System Stack Terminal</span>
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Full-Stack Trace Terminal</span>
                 </div>
                 <button onClick={handleRunDiagnostics} disabled={isDiagnosing} className="px-4 py-1.5 bg-blue-600 text-white text-[9px] font-black uppercase rounded-lg">
-                  {isDiagnosing ? 'DIAG IN CORSO...' : 'RUN 3-STEP TEST'}
+                  {isDiagnosing ? 'DIAG IN CORSO...' : 'RUN FULL STACK TEST'}
                 </button>
               </div>
               <div className="p-6 h-[350px] overflow-y-auto font-mono text-[11px] leading-relaxed no-scrollbar bg-black/40">
-                {logHistory.length === 0 && <div className="text-zinc-700 italic px-4 py-2">Clicca "RUN 3-STEP TEST" per verificare il flusso: Browser → Endpoint → Proxy → n8n</div>}
+                {logHistory.length === 0 && <div className="text-zinc-700 italic px-4 py-2">Pronto. Avvia una sincronizzazione per vedere il flusso dei dati.</div>}
                 {logHistory.map((log, i) => (
                   <div key={i} onClick={() => { setSelectedLog(log); setIsDebugOpen(true); }} className="flex items-center gap-4 py-2.5 hover:bg-white/5 cursor-pointer px-4 rounded-xl transition-all border-b border-white/5 last:border-0">
                     <span className="text-zinc-600 shrink-0">[{log.timestamp}]</span>
-                    <span className={`font-black text-[8px] px-1.5 py-0.5 rounded border ${log.type === 'ERROR' || log.type === 'FATAL' ? 'text-red-500 border-red-500/30 bg-red-500/5' : log.type === 'SUCCESS' ? 'text-emerald-500 border-emerald-500/30 bg-emerald-500/5' : 'text-zinc-500 border-zinc-500/30'}`}>
+                    <span className={`font-black text-[8px] px-1.5 py-0.5 rounded border ${log.type === 'ERROR' || log.type === 'FATAL' ? 'text-red-500 border-red-500/30 bg-red-500/5' : log.type === 'SUCCESS' ? 'text-emerald-500 border-emerald-500/30 bg-emerald-500/5' : log.type === 'NETWORK' ? 'text-blue-400 border-blue-400/30' : 'text-zinc-500 border-zinc-500/30'}`}>
                       {log.type}
                     </span>
                     <span className="text-zinc-300 truncate flex-1">{log.message}</span>

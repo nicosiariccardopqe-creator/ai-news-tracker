@@ -6,57 +6,53 @@ import react from '@vitejs/plugin-react';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-/**
- * Middleware robusto per AI Studio.
- * Intercetta le chiamate /api/ e inoltra a n8n con il token di sessione.
- */
 const mcpProxyPlugin = (env: Record<string, string>) => ({
   name: 'mcp-proxy-server',
   configureServer(server: any) {
     server.middlewares.use(async (req: any, res: any, next: any) => {
       const url = req.url || '';
       
-      // STEP 1: Browser chiama Endpoint
       if (url.includes('/api/status')) {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json');
         res.end(JSON.stringify({
           status: "online",
-          mode: "vite-middleware-3step",
+          mode: "vite-middleware-full-trace",
           env_token_present: !!env.MCP_TOKEN,
           timestamp: new Date().toISOString()
         }));
         return;
       }
 
-      // STEP 2 & 3: Endpoint chiama Proxy -> Proxy chiama n8n
       if (url.includes('/api/news') && req.method === 'POST') {
         let body = '';
         req.on('data', (chunk: any) => { body += chunk; });
         req.on('end', async () => {
+          const proxyTrace: any[] = [];
           try {
             const data = JSON.parse(body || '{}');
-            // Priorità al token in env se disponibile, per sicurezza
             const finalToken = env.MCP_TOKEN || data.token;
             const params = data.params || {};
+
+            proxyTrace.push({ step: "PROXY_RECEIVED", payload: data });
 
             if (!finalToken) {
               res.statusCode = 401;
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ error: "MCP_TOKEN non configurato nel server" }));
+              res.end(JSON.stringify({ error: "MCP_TOKEN non trovato", trace: proxyTrace }));
               return;
             }
 
             const mcpTarget = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
-            
-            // LOGICA DI INIEZIONE TOKEN RICHIESTA
             const n8nPayload = {
               method: "NewsAI",
               token: finalToken,
               params: params
             };
 
-            const response = await fetch(mcpTarget, {
+            proxyTrace.push({ step: "PROXY_SENDING_TO_N8N", url: mcpTarget, payload: n8nPayload });
+
+            const n8nResponse = await fetch(mcpTarget, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
@@ -65,14 +61,27 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
               body: JSON.stringify(n8nPayload)
             });
 
-            const result = await response.text();
-            res.statusCode = response.status;
+            const resultText = await n8nResponse.text();
+            let resultData;
+            try { resultData = JSON.parse(resultText); } catch { resultData = resultText; }
+
+            proxyTrace.push({ 
+              step: "N8N_RESPONDED", 
+              status: n8nResponse.status, 
+              payload: resultData 
+            });
+
+            res.statusCode = n8nResponse.status;
             res.setHeader('Content-Type', 'application/json');
-            res.end(result);
+            res.setHeader('X-Proxy-Full-Trace', Buffer.from(JSON.stringify(proxyTrace)).toString('base64'));
+            res.end(JSON.stringify({
+              ...resultData,
+              _proxy_trace: proxyTrace
+            }));
           } catch (err: any) {
             res.statusCode = 502;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: "Proxy Exception", details: err.message }));
+            res.end(JSON.stringify({ error: "Proxy Exception", details: err.message, trace: proxyTrace }));
           }
         });
         return;

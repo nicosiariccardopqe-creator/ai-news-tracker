@@ -1,6 +1,8 @@
 
 import { NewsItem } from './types';
 
+export const N8N_UNREACHABLE = 'N8N_UNREACHABLE';
+
 export const CATEGORIES = [
   'TUTTE',
   'NUOVI MODELLI',

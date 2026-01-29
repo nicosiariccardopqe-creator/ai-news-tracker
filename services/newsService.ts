@@ -1,19 +1,14 @@
 
 import { NewsItem, NewsResponse } from '../types';
-import { MOCK_INITIAL_NEWS } from '../constants';
 
-// Percorsi relativi gestiti dal Middleware Proxy di Vite
 export const MCP_ENDPOINT = '/api/news';
 export const STATUS_ENDPOINT = '/api/status';
 
 export interface FetchNewsResult {
-  data: NewsResponse;
-  trace: string[];
+  data: NewsResponse & { _proxy_trace?: any[] };
+  serverTrace?: any[];
 }
 
-/**
- * STEP 1 & 2: Verifica l'endpoint locale e lo stato del Proxy
- */
 export async function checkProxyStatus(): Promise<any> {
   const response = await fetch(STATUS_ENDPOINT);
   if (!response.ok) {
@@ -22,15 +17,11 @@ export async function checkProxyStatus(): Promise<any> {
   return await response.json();
 }
 
-/**
- * STEP 3: Recupera le news attraverso il Proxy (Endpoint -> Proxy -> n8n)
- */
 export async function fetchNews(
   params: { tags?: string[] } = {}, 
   token?: string, 
   signal?: AbortSignal
 ): Promise<FetchNewsResult> {
-  // Usiamo il token passato come argomento o quello presente nel contesto di processo (iniettato da Vite)
   const activeToken = token || process.env.MCP_TOKEN || '';
 
   const response = await fetch(MCP_ENDPOINT, {
@@ -43,19 +34,32 @@ export async function fetchNews(
     signal: signal 
   });
 
-  if (!response.ok) {
-    let detail = "Errore durante la comunicazione col Proxy";
+  // Estraiamo il trace dall'header se presente (codificato in base64 per sicurezza caratteri)
+  let serverTrace: any[] | undefined;
+  const traceHeader = response.headers.get('X-Proxy-Full-Trace');
+  if (traceHeader) {
     try {
-      const errorData = await response.json();
-      detail = errorData.error || errorData.details || JSON.stringify(errorData);
+      serverTrace = JSON.parse(atob(traceHeader));
     } catch (e) {
-      detail = await response.text();
+      console.warn("Impossibile decodificare X-Proxy-Full-Trace");
     }
-    throw new Error(`[Proxy Error ${response.status}] ${detail}`);
+  }
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    let errorData;
+    try { errorData = JSON.parse(errorText); } catch { errorData = { error: errorText }; }
+    
+    throw {
+      message: errorData.error || "Errore comunicazione Proxy",
+      status: response.status,
+      serverTrace: serverTrace || errorData.trace,
+      payload: errorData
+    };
   }
 
   const data = await response.json();
-  return { data, trace: ["Flusso: Browser -> Endpoint -> Proxy -> n8n completato"] };
+  return { data, serverTrace: serverTrace || data._proxy_trace };
 }
 
 export function trackTelemetry(event: string, data?: any) { 

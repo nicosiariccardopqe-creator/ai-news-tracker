@@ -13,7 +13,7 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
   try {
     
     const token = process.env.MCP_TOKEN; // mettilo su Render/hosting come variabile ambiente
-    if (!token) throw new Error("MCP_TOKEN mancante nelle variabili d'ambiente");
+    if (!token) { throw new Error("MCP_TOKEN mancante nelle variabili d'ambiente")} else {console.log('[Token presente]', token)};
 
     // Chiamata all'endpoint MCP assoluto
     // Aumentiamo il timeout a 60 secondi perché Render (free tier) può impiegare molto tempo per lo spin-up (cold start)

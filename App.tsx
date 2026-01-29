@@ -80,7 +80,8 @@ const App: React.FC = () => {
      
       addLog(`ERRORE FLOW: ${error.message}`, 'ERROR', { 
         error_details: error.message,
-        hint: "Verifica che MCP_TOKEN sia impostato correttamente nel server. Parametri: " + params.tags.toString
+        request_params: params,
+        hint: "Verifica che MCP_TOKEN sia impostato correttamente nel server."
       }, error.stack);
       setStatus(AppState.ERROR);
     } finally {

@@ -73,19 +73,51 @@ const App: React.FC = () => {
         abortControllerRef.current.signal
       );
       
-      // Logghiamo i trace del server (inclusi quelli del proxy con token mascherato 20..5)
       if (result.serverTrace) {
         result.serverTrace.forEach(msg => addLog(msg, "DEBUG"));
       }
 
-      // Tracciamo la risposta effettiva ricevuta dal server
       addLog(`RISPOSTA SERVER RICEVUTA`, "SUCCESS", result.data);
 
-      const newsItems = result.data.items || [];
-      setItems(newsItems);
-      setStatus(newsItems.length ? AppState.SUCCESS : AppState.EMPTY);
+      // ESTRAZIONE DATI: Gestiamo sia array diretto che formato MCP result.content
+      let rawItems: any[] = [];
+      // Fix: Cast result.data to any to safely check for polymorphic response properties like 'result' or 'items'
+      const responseData: any = result.data;
+      
+      if (Array.isArray(responseData)) {
+        rawItems = responseData;
+      } else if (responseData?.result?.content) {
+        const content = responseData.result.content.find((c: any) => c.type === 'text');
+        if (content && content.text) {
+          try {
+            const parsed = JSON.parse(content.text);
+            rawItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
+          } catch {
+            addLog("Impossibile parsare il testo nel content MCP", "ERROR");
+          }
+        }
+      } else if (responseData?.items) {
+        rawItems = responseData.items;
+      }
+
+      // MAPPING RICHIESTO: title, link, contentSnippet, pubDate, categories
+      const mappedItems: NewsItem[] = rawItems.map((raw: any, index: number) => ({
+        id: raw.id || `n8n-${Date.now()}-${index}`,
+        title: raw.title || "Senza Titolo",
+        url: raw.link || "#",
+        summary: raw.contentSnippet || raw.summary || "Nessun sommario disponibile.",
+        published_at: raw.pubDate || raw.puibbDate || raw.published_at || new Date().toISOString(),
+        tags: Array.isArray(raw.categories) ? raw.categories : (raw.tags || ["AI"]),
+        source: raw.source || { name: 'N8N FEED', domain: 'n8n.io' },
+        fetched_at: new Date().toISOString(),
+        language: raw.language || 'it',
+        score: raw.score || { freshness: 1, relevance: 1, popularity: 1 }
+      }));
+
+      setItems(mappedItems);
+      setStatus(mappedItems.length ? AppState.SUCCESS : AppState.EMPTY);
       setLastSyncTime(new Date().toLocaleString('it-IT'));
-      addLog(`Pipeline completata: ${newsItems.length} notizie elaborate.`, "SUCCESS");
+      addLog(`Mapping completato: ${mappedItems.length} notizie visualizzate.`, "SUCCESS");
 
     } catch (error: any) {
       if (error.name === 'AbortError') {
@@ -166,7 +198,7 @@ const App: React.FC = () => {
                      </svg>
                    ) : (
                      <svg className="w-8 h-8 group-hover:rotate-180 transition-transform duration-700" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357-2H15" />
                      </svg>
                    )}
                  </button>

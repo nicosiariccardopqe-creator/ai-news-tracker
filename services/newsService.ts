@@ -5,7 +5,8 @@ export const MCP_ENDPOINT = '/api/news';
 export const STATUS_ENDPOINT = '/api/status';
 
 export interface FetchNewsResult {
-  data: NewsResponse & { _proxy_trace?: any[] };
+  // Fix: changed data type to any to support polymorphic responses (Array, MCP object, or NewsResponse) from the proxy
+  data: any;
   serverTrace?: any[];
 }
 

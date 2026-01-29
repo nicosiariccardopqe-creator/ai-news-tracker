@@ -1,7 +1,7 @@
 
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { AppState, NewsItem, ErrorDetail } from './types';
-import { fetchNews, checkProxyConnectivity, testDirectConnectivity, MCP_ENDPOINT } from './services/newsService';
+import { fetchNews, checkProxyStatus, MCP_ENDPOINT } from './services/newsService';
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
 import DebugModal from './components/DebugModal';
@@ -51,39 +51,37 @@ const App: React.FC = () => {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    const mcpToken = process.env.MCP_TOKEN;
+    // Passiamo il tag selezionato come parametro
     const params = { tags: activeTag === 'TUTTE' ? [] : [activeTag] };
 
-    // RIPRISTINO PAYLOAD NEL LOG
     addLog(`Avvio sincronizzazione...`, 'NETWORK', { 
+      step: "1. Browser chiama Endpoint",
       endpoint: MCP_ENDPOINT,
       params: params,
-      token_status: mcpToken ? 'PRESENT (REDACTED)' : 'MISSING',
-      browser_info: navigator.userAgent.slice(0, 50) + "..."
+      strategy: "Proxy-Managed (MCP_TOKEN in sessione)"
     });
 
     abortControllerRef.current = new AbortController();
 
     try {
-      const { data } = await fetchNews(params, mcpToken, abortControllerRef.current.signal);
+      // Nota: Non passiamo il token qui, lasciamo che il Proxy usi process.env.MCP_TOKEN
+      const { data } = await fetchNews(params, undefined, abortControllerRef.current.signal);
       const newsItems = data.items || [];
       setItems(newsItems);
       setStatus(newsItems.length ? AppState.SUCCESS : AppState.EMPTY);
-      addLog(`Sincronizzazione completata: ${newsItems.length} news caricate.`, 'SUCCESS', { 
+      addLog(`Sincronizzazione completata tramite Proxy.`, 'SUCCESS', { 
+        step: "3. Proxy ha risposto con successo",
         count: newsItems.length,
-        generated_at: data.generated_at 
+        source: data.source_version 
       });
     } catch (error: any) {
-      if (error.name === 'AbortError' || error.message.includes("interrotta")) {
-        // Interruzione manuale già loggata
-      } else {
-        addLog(`ERRORE SYNC: ${error.message}`, 'ERROR', { 
-          error_name: error.name,
-          full_message: error.message,
-          suggestion: "Se vedi 502, n8n potrebbe essere spento o il token errato."
-        }, error.stack);
-        setStatus(AppState.ERROR);
-      }
+      if (error.name === 'AbortError') return;
+      
+      addLog(`FALLIMENTO FLOW: ${error.message}`, 'ERROR', { 
+        error_info: error.message,
+        tip: "Verifica che il token sia correttamente impostato nelle variabili d'ambiente."
+      });
+      setStatus(AppState.ERROR);
     } finally {
       setIsRefreshing(false);
       abortControllerRef.current = null;
@@ -93,24 +91,33 @@ const App: React.FC = () => {
   const handleRunDiagnostics = async () => {
     if (isDiagnosing) return;
     setIsDiagnosing(true);
-    addLog("AVVIO DIAGNOSTICA STACK...", "SYSTEM", { timestamp: Date.now() });
+    addLog("AVVIO TEST STACK (3 STEP)...", "SYSTEM");
 
     try {
-      addLog("Verifica Service Worker Proxy...", "DEBUG");
-      const proxyStatus = await checkProxyConnectivity();
-      addLog(`Proxy STATUS: ${proxyStatus.status}`, "SUCCESS", proxyStatus);
+      // STEP 1: Browser -> Endpoint
+      addLog("STEP 1: Test Endpoint Locale...", "DEBUG");
+      const statusRes = await checkProxyStatus();
+      addLog("Endpoint Raggiungibile.", "SUCCESS", { url: "/api/status", response: statusRes });
 
-      addLog("Test connettività n8n...", "DEBUG");
-      const direct = await testDirectConnectivity();
-      addLog(direct ? "n8n Reachable" : "n8n Unreachable", direct ? "SUCCESS" : "WARNING", { direct_check: direct });
+      // STEP 2: Endpoint -> Proxy (Controllo Token)
+      addLog("STEP 2: Verifica Proxy & Token...", "DEBUG");
+      if (statusRes.env_token_present) {
+        addLog(`Proxy pronto (Token presente in sessione).`, "SUCCESS", { mode: statusRes.mode });
+      } else {
+        addLog(`ATTENZIONE: MCP_TOKEN non rilevato nel Proxy.`, "WARNING");
+      }
 
-      addLog("Test Fetch News (DIAG)...", "DEBUG");
-      const token = process.env.MCP_TOKEN;
+      // STEP 3: Proxy -> n8n
+      addLog("STEP 3: Test Chiamata Completa (Proxy -> n8n)...", "DEBUG");
       const diagParams = { tags: ["DIAG"] };
-      await fetchNews(diagParams, token);
-      addLog("Flusso dati completo OK.", "SUCCESS", { params: diagParams });
+      const { data } = await fetchNews(diagParams);
+      addLog("Stack completo verificato con successo!", "SUCCESS", { 
+        news_count: data.items?.length || 0,
+        n8n_response_time: data.generated_at 
+      });
+
     } catch (err: any) {
-      addLog(`FALLIMENTO: ${err.message}`, "FATAL", { error: err.message }, err.stack);
+      addLog(`DIAGNOSTICA FALLITA: ${err.message}`, "FATAL", { error: err.message }, err.stack);
     } finally {
       setIsDiagnosing(false);
     }
@@ -196,6 +203,7 @@ const App: React.FC = () => {
               )}
             </div>
 
+            {/* TERMINALE DIAGNOSTICO - ORA ALLINEATO AI 3 STEP */}
             <section className="bg-[#050505] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12">
               <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex justify-between items-center">
                 <div className="flex items-center gap-4">
@@ -203,14 +211,14 @@ const App: React.FC = () => {
                     <div className="w-3 h-3 rounded-full bg-red-500/20 border border-red-500/40"></div>
                     <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
                   </div>
-                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">System Diagnostics Terminal</span>
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">System Stack Terminal</span>
                 </div>
                 <button onClick={handleRunDiagnostics} disabled={isDiagnosing} className="px-4 py-1.5 bg-blue-600 text-white text-[9px] font-black uppercase rounded-lg">
-                  {isDiagnosing ? 'DIAG IN CORSO...' : 'RE-TEST STACK'}
+                  {isDiagnosing ? 'DIAG IN CORSO...' : 'RUN 3-STEP TEST'}
                 </button>
               </div>
               <div className="p-6 h-[350px] overflow-y-auto font-mono text-[11px] leading-relaxed no-scrollbar bg-black/40">
-                {logHistory.length === 0 && <div className="text-zinc-700 italic">In attesa di eventi... Premi "Refresh" o "Re-test"</div>}
+                {logHistory.length === 0 && <div className="text-zinc-700 italic">Clicca "RUN 3-STEP TEST" per verificare il flusso: Browser → Endpoint → Proxy → n8n</div>}
                 {logHistory.map((log, i) => (
                   <div key={i} onClick={() => { setSelectedLog(log); setIsDebugOpen(true); }} className="flex items-center gap-4 py-2.5 hover:bg-white/5 cursor-pointer px-4 rounded-xl transition-all border-b border-white/5 last:border-0">
                     <span className="text-zinc-600 shrink-0">[{log.timestamp}]</span>

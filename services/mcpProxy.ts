@@ -70,10 +70,17 @@ router.post("/news", async (req, res) => {
       params: params || {},
     };
 
-    addTrace(`Configurazione payload per n8n:`);
+    const headersLog = {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${finalToken.substring(0, 6)}...`
+    };
+
+    addTrace(`=== PREPARAZIONE CHIAMATA N8N ===`);
     addTrace(`-> Metodo: NewsAI`);
-    addTrace(`-> Params: ${JSON.stringify(n8nPayload.params)}`);
-    addTrace(`-> Inoltro a: ${MCP_TARGET}`);
+    addTrace(`-> Headers: ${JSON.stringify(headersLog)}`);
+    addTrace(`-> Full Payload: ${JSON.stringify(n8nPayload)}`);
+    addTrace(`-> Target: ${MCP_TARGET}`);
+    addTrace(`=================================`);
 
     const n8nResponse = await fetchWithRetry(
       MCP_TARGET,

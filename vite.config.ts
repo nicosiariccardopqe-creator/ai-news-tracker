@@ -50,11 +50,16 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
               params: params
             };
 
-            proxyTrace.push(`[PROXY] Preparazione payload per n8n:`);
-            proxyTrace.push(`[PROXY] -> Metodo: NewsAI`);
-            proxyTrace.push(`[PROXY] -> Token: ${finalToken.substring(0, 4)}... (lunghezza: ${finalToken.length})`);
-            proxyTrace.push(`[PROXY] -> Params: ${JSON.stringify(params)}`);
-            proxyTrace.push(`[PROXY] Inoltro a n8n: ${mcpTarget}`);
+            const headers = {
+              'Content-Type': 'application/json',
+              'Authorization': `Bearer ${finalToken.substring(0, 6)}...`
+            };
+
+            proxyTrace.push(`[PROXY] === PREPARAZIONE CHIAMATA N8N ===`);
+            proxyTrace.push(`[PROXY] Target: ${mcpTarget}`);
+            proxyTrace.push(`[PROXY] Headers: ${JSON.stringify(headers)}`);
+            proxyTrace.push(`[PROXY] Payload Inviato: ${JSON.stringify(n8nPayload)}`);
+            proxyTrace.push(`[PROXY] =================================`);
 
             const n8nResponse = await fetch(mcpTarget, {
               method: 'POST',

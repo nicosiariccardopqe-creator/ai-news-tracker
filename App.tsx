@@ -57,8 +57,7 @@ const App: React.FC = () => {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    addLog(`INVIO RICHIESTA JSON-RPC 2.0 (Tool: execute_workflow)`, "NETWORK", {
-      jsonrpc: "2.0",
+    addLog(`INVIO RICHIESTA JSON-RPC 2.0`, "NETWORK", {
       method: "tools/call",
       params: { name: "execute_workflow", workflowId: "rvpkrwvBbd5NWLMt" }
     });
@@ -72,51 +71,47 @@ const App: React.FC = () => {
         abortControllerRef.current.signal
       );
       
-      if (result.serverTrace) {
-        result.serverTrace.forEach(msg => addLog(msg, "DEBUG"));
-      }
-
-      addLog(`RISPOSTA SERVER RICEVUTA`, "SUCCESS", result.data);
-
       const responseData: any = result.data;
+      addLog(`RISPOSTA RICEVUTA (Grezza)`, "NETWORK", responseData);
+
       let rawItems: any[] = [];
 
-      // PERCORSO SPECIFICO N8N RICHIESTO: 
-      // data -> result -> structuredContent -> result -> runData -> Combine All Posts -> data -> main -> json -> data
-      // Gestiamo la possibile presenza di array intermedi [0] tipici di n8n
-      const n8nBase = responseData?.result?.structuredContent?.result?.runData?.['Combine All Posts'];
-      
-      if (n8nBase) {
-        // n8n spesso restituisce runData come array di esecuzioni del nodo
-        const executionData = Array.isArray(n8nBase) ? n8nBase[0]?.data : n8nBase.data;
-        const mainData = executionData?.main;
-        const jsonContainer = Array.isArray(mainData) ? mainData[0]?.json : mainData?.json;
-        const finalData = jsonContainer?.data;
+      // ESTRAZIONE ROBUSTA BASATA SUL LOG FORNITO
+      try {
+        // 1. Cerchiamo la stringa JSON dentro content[0].text
+        const contentPart = responseData?.result?.content?.find((c: any) => c.type === 'text');
+        const innerJsonString = contentPart?.text;
 
-        if (Array.isArray(finalData)) {
-          rawItems = finalData;
-          addLog(`Dati estratti dal percorso profondo n8n (Combine All Posts)`, "SYSTEM");
-        }
-      }
-
-      // Fallback a percorsi standard se il percorso profondo non ha prodotto risultati
-      if (rawItems.length === 0) {
-        if (Array.isArray(responseData)) {
-          rawItems = responseData;
-        } else if (responseData?.result?.content) {
-          const content = responseData.result.content.find((c: any) => c.type === 'text');
-          if (content && content.text) {
-            try {
-              const parsed = JSON.parse(content.text);
-              rawItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
-            } catch { /* ignore */ }
+        if (innerJsonString) {
+          const parsedInner = JSON.parse(innerJsonString);
+          
+          // 2. Percorriamo l'albero: result -> runData -> Combine All Posts
+          const runData = parsedInner?.result?.runData;
+          const combineNode = runData?.['Combine All Posts'];
+          
+          if (combineNode && combineNode.length > 0) {
+            // 3. data -> main -> [0] -> [0] -> json -> data
+            const mainData = combineNode[0]?.data?.main;
+            if (mainData && mainData[0] && mainData[0][0]) {
+              const dataArray = mainData[0][0].json?.data;
+              if (Array.isArray(dataArray)) {
+                rawItems = dataArray;
+                addLog(`Estratte ${rawItems.length} notizie dal percorso specifico n8n`, "SUCCESS");
+              }
+            }
           }
-        } else if (responseData?.items) {
-          rawItems = responseData.items;
+        } else {
+          // Fallback se la struttura è leggermente diversa (es. structuredContent come indicato dall'utente)
+          const dataArray = responseData?.result?.structuredContent?.result?.runData?.['Combine All Posts']?.[0]?.data?.main?.[0]?.[0]?.json?.data;
+          if (Array.isArray(dataArray)) {
+            rawItems = dataArray;
+          }
         }
+      } catch (parseError) {
+        addLog("Errore durante il parsing dei dati annidati", "ERROR", parseError);
       }
 
-      // MAPPING RICHIESTO: 
+      // MAPPING DEI CAMPI RICHIESTO:
       // 1. title -> title
       // 2. link -> url
       // 3. contentSnippet -> summary
@@ -126,9 +121,9 @@ const App: React.FC = () => {
         id: raw.id || `n8n-${Date.now()}-${index}`,
         title: raw.title || "Senza Titolo",
         url: raw.link || "#",
-        summary: raw.contentSnippet || "Nessun sommario disponibile.",
+        summary: raw.contentSnippet || raw.summary || "Nessun sommario disponibile.",
         published_at: raw.puibbDate || raw.pubDate || new Date().toISOString(),
-        tags: Array.isArray(raw.categories) ? raw.categories : ["AI"],
+        tags: Array.isArray(raw.categories) ? raw.categories : (raw.tags || ["AI"]),
         source: { 
           name: (raw.source && typeof raw.source === 'string' ? raw.source : (raw.source?.name || 'N8N FEED')), 
           domain: (raw.source?.domain || 'n8n.io') 
@@ -145,10 +140,10 @@ const App: React.FC = () => {
 
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        addLog("Richiesta annullata dall'utente.", "SYSTEM");
+        addLog("Richiesta annullata.", "SYSTEM");
         return;
       }
-      addLog(`ERRORE PIPELINE: ${error.message || 'Errore di connessione'}`, "ERROR", error.payload || error);
+      addLog(`ERRORE PIPELINE: ${error.message || 'Errore di connessione'}`, "ERROR", error);
       setStatus(AppState.ERROR);
     } finally {
       setIsRefreshing(false);
@@ -209,7 +204,7 @@ const App: React.FC = () => {
                   type="button"
                   onClick={handleRefresh} 
                   className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-red-500' : 'bg-slate-900'} text-white group`}
-                  title={isRefreshing ? "Annulla" : "Sincronizza con n8n (JSON-RPC)"}
+                  title={isRefreshing ? "Annulla" : "Sincronizza con n8n"}
                  >
                    {isRefreshing ? (
                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -275,7 +270,7 @@ const App: React.FC = () => {
           </aside>
         </div>
 
-        {/* Console di Debug a Larghezza Intera */}
+        {/* Console di Debug */}
         <section className="bg-[#050505] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12 transition-all duration-500">
           <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex items-center justify-between">
             <div className="flex items-center gap-4">
@@ -283,26 +278,9 @@ const App: React.FC = () => {
               <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Full-Stack Data Pipeline & Server Tracking</span>
             </div>
             <div className="flex items-center gap-4">
-               <button 
-                onClick={clearLogs}
-                className="text-[9px] font-black text-zinc-500 hover:text-white uppercase tracking-widest transition-colors"
-               >
-                 Clear
-               </button>
-               <button 
-                onClick={() => setIsLogCollapsed(!isLogCollapsed)}
-                className="p-2 text-zinc-500 hover:text-white transition-colors"
-                title={isLogCollapsed ? "Espandi" : "Collassa"}
-               >
-                {isLogCollapsed ? (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
-                  </svg>
-                ) : (
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" />
-                  </svg>
-                )}
+               <button onClick={clearLogs} className="text-[9px] font-black text-zinc-500 hover:text-white uppercase tracking-widest transition-colors">Clear</button>
+               <button onClick={() => setIsLogCollapsed(!isLogCollapsed)} className="p-2 text-zinc-500 hover:text-white transition-colors">
+                {isLogCollapsed ? <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" /></svg> : <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" /></svg>}
                </button>
             </div>
           </div>
@@ -311,32 +289,14 @@ const App: React.FC = () => {
             <div className="p-6 h-[350px] overflow-y-auto font-mono text-[11px] no-scrollbar bg-black/40 animate-fade-in">
               {logHistory.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-zinc-800 space-y-2">
-                  <svg className="w-8 h-8 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                  </svg>
-                  <p className="italic font-bold tracking-widest uppercase text-[9px]">Pipeline in standby...</p>
+                  <p className="italic font-bold tracking-widest uppercase text-[9px]">In attesa di dati...</p>
                 </div>
               )}
               {logHistory.map((log, i) => (
-                <div 
-                  key={i} 
-                  onClick={() => { setSelectedLog(log); setIsDebugOpen(true); }} 
-                  className="flex items-center gap-4 py-2.5 hover:bg-white/5 cursor-pointer px-4 rounded-lg transition-colors border-b border-white/5 last:border-0 group"
-                >
+                <div key={i} onClick={() => { setSelectedLog(log); setIsDebugOpen(true); }} className="flex items-center gap-4 py-2.5 hover:bg-white/5 cursor-pointer px-4 rounded-lg transition-colors border-b border-white/5 last:border-0 group">
                   <span className="text-zinc-600 shrink-0 tabular-nums">[{log.timestamp}]</span>
-                  <span className={`font-black text-[8px] px-2 py-0.5 rounded border transition-all ${
-                    log.type === 'ERROR' ? 'text-red-500 border-red-500/30 bg-red-500/5' : 
-                    log.type === 'SUCCESS' ? 'text-emerald-500 border-emerald-500/30 bg-emerald-500/5' : 
-                    log.type === 'SYSTEM' ? 'text-blue-400 border-blue-400/30 bg-blue-400/5' : 
-                    log.type === 'NETWORK' ? 'text-amber-400 border-amber-400/30 bg-amber-400/5' :
-                    'text-zinc-500 border-zinc-500/30'
-                  }`}>
-                    {log.type}
-                  </span>
+                  <span className={`font-black text-[8px] px-2 py-0.5 rounded border transition-all ${log.type === 'ERROR' ? 'text-red-500 border-red-500/30 bg-red-500/5' : log.type === 'SUCCESS' ? 'text-emerald-500 border-emerald-500/30 bg-emerald-500/5' : log.type === 'SYSTEM' ? 'text-blue-400 border-blue-400/30 bg-blue-400/5' : log.type === 'NETWORK' ? 'text-amber-400 border-amber-400/30 bg-amber-400/5' : 'text-zinc-500 border-zinc-500/30'}`}>{log.type}</span>
                   <span className="text-zinc-300 truncate group-hover:text-white">{log.message}</span>
-                  <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
-                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">Click to inspect</span>
-                  </div>
                 </div>
               ))}
             </div>

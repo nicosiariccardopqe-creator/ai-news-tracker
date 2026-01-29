@@ -34,7 +34,7 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
             const finalToken = env.MCP_TOKEN || data.token;
             const params = data.params || {};
 
-            proxyTrace.push({ step: "PROXY_RECEIVED", payload: data });
+            proxyTrace.push(`[PROXY] Richiesta ricevuta per tag: ${JSON.stringify(params.tags || 'TUTTE')}`);
 
             if (!finalToken) {
               res.statusCode = 401;
@@ -50,7 +50,7 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
               params: params
             };
 
-            proxyTrace.push({ step: "PROXY_SENDING_TO_N8N", url: mcpTarget, payload: n8nPayload });
+            proxyTrace.push(`[PROXY] Inoltro a n8n: ${mcpTarget}`);
 
             const n8nResponse = await fetch(mcpTarget, {
               method: 'POST',
@@ -63,22 +63,26 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
 
             const resultText = await n8nResponse.text();
             let resultData;
-            try { resultData = JSON.parse(resultText); } catch { resultData = resultText; }
+            try { 
+              resultData = JSON.parse(resultText); 
+            } catch { 
+              resultData = { rawResponse: resultText }; 
+            }
 
-            proxyTrace.push({ 
-              step: "N8N_RESPONDED", 
-              status: n8nResponse.status, 
-              payload: resultData 
-            });
+            proxyTrace.push(`[PROXY] n8n ha risposto con status ${n8nResponse.status}`);
 
             res.statusCode = n8nResponse.status;
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('X-Proxy-Full-Trace', Buffer.from(JSON.stringify(proxyTrace)).toString('base64'));
-            res.end(JSON.stringify({
-              ...resultData,
-              _proxy_trace: proxyTrace
-            }));
+            
+            // Garantiamo che la risposta sia sempre un oggetto JSON valido
+            const finalBody = typeof resultData === 'object' && resultData !== null 
+              ? { ...resultData, _proxy_trace: proxyTrace }
+              : { data: resultData, _proxy_trace: proxyTrace };
+
+            res.end(JSON.stringify(finalBody));
           } catch (err: any) {
+            proxyTrace.push(`[PROXY] ERRORE CRITICO: ${err.message}`);
             res.statusCode = 502;
             res.setHeader('Content-Type', 'application/json');
             res.end(JSON.stringify({ error: "Proxy Exception", details: err.message, trace: proxyTrace }));

@@ -8,7 +8,8 @@ interface NewsCardProps {
 }
 
 const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
-  const handleClick = () => {
+  const handleClick = (e: React.MouseEvent) => {
+    e.preventDefault();
     trackTelemetry('news_click_out', { id: item.id, url: item.url });
     window.open(item.url, '_blank', 'noopener,noreferrer');
   };
@@ -23,7 +24,7 @@ const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
           {item.source.name}
         </div>
         <div className="flex items-center gap-2 sm:gap-3 text-slate-400 text-[10px] sm:text-xs font-medium">
-          14:30
+          LIVE
           <span className="w-2 sm:w-2.5 h-2 sm:h-2.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.5)] group-hover:scale-125 transition-transform duration-500"></span>
         </div>
       </div>
@@ -44,17 +45,12 @@ const NewsCard: React.FC<NewsCardProps> = ({ item }) => {
               #{tag.replace(/\s+/g, '')}
             </span>
           ))}
-          {item.tags.length > 2 && (
-            <span className="text-[9px] sm:text-[10px] font-bold text-slate-300 self-center">
-              +{item.tags.length - 2}
-            </span>
-          )}
         </div>
-        <button className="w-8 h-8 sm:w-10 sm:h-10 rounded-sm bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-slate-900 group-hover:text-white transition-all duration-300 shrink-0">
+        <div className="w-8 h-8 sm:w-10 sm:h-10 rounded-sm bg-slate-50 flex items-center justify-center text-slate-400 group-hover:bg-slate-900 group-hover:text-white transition-all duration-300 shrink-0">
           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
           </svg>
-        </button>
+        </div>
       </div>
     </div>
   );

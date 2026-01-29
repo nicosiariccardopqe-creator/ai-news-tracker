@@ -28,7 +28,7 @@ const App: React.FC = () => {
       payload,
       stack: stack || 'No stack trace available'
     };
-    setLogHistory(prev => [newLog, ...prev].slice(0, 50));
+    setLogHistory(prev => [newLog, ...prev].slice(0, 100)); // Aumentato limite log per dettagli payload
   };
 
   const loadFallback = async (payload: any) => {
@@ -48,39 +48,42 @@ const App: React.FC = () => {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    const mcpToken = process.env.MCP_TOKEN || 'NON_CONFIGURATO';
+    const mcpToken = process.env.MCP_TOKEN || 'MISSING_IN_VITE_CONFIG';
     const requestParams = { tags: [] }; 
     const fullPayload = { params: requestParams, token: mcpToken };
     
-    addLog(`POST ${MCP_ENDPOINT} | SYNC START`, 'NETWORK', fullPayload);
+    addLog(`AVVIO SYNC: Chiamata al proxy locale in corso...`, 'NETWORK', fullPayload);
 
     try {
       const { data, trace } = await fetchNews(requestParams, mcpToken);
       
       // Visualizziamo ogni step del server nel terminale locale
       if (trace && trace.length > 0) {
-        trace.forEach(msg => addLog(msg, 'PROXY'));
+        trace.forEach(msg => {
+          // Se il messaggio contiene un payload (JSON), proviamo a renderlo cliccabile o più visibile
+          const hasPayload = msg.includes('{');
+          addLog(msg, 'PROXY', hasPayload ? { raw_trace_message: msg } : {});
+        });
       }
 
       setItems(data.items);
       setStatus(AppState.SUCCESS);
-      addLog(`SUCCESS [200]: News caricate correttamente.`, 'SUCCESS');
+      addLog(`SYNC COMPLETATO: ${data.items.length} articoli ricevuti.`, 'SUCCESS');
     } catch (error: any) {
       console.error("MCP Sync Error:", error);
       
-      // Mostriamo il trace anche in caso di errore
       if (error.trace && error.trace.length > 0) {
         error.trace.forEach((msg: string) => addLog(msg, 'PROXY_ERR'));
       }
 
       addLog(
-        `SYNC FAIL: ${error.message}`, 
+        `SYNC FALLITO: ${error.message}`, 
         'ERROR', 
         { endpoint: MCP_ENDPOINT, sentPayload: fullPayload }, 
         error.stack || error.originalStack
       );
 
-      addLog("Inizializzazione fallback locale...", 'SYSTEM');
+      addLog("Attivazione dataset locale di emergenza...", 'SYSTEM');
       await loadFallback(requestParams);
     } finally {
       setIsRefreshing(false);
@@ -88,14 +91,14 @@ const App: React.FC = () => {
   }, [isRefreshing]);
 
   const handleForceDefault = async () => {
-    addLog("OVERRIDE MANUALE: Dataset locale.", 'OVERRIDE');
+    addLog("OVERRIDE: Forzato caricamento locale.", 'OVERRIDE');
     setIsRefreshing(false);
     await loadFallback({ tags: [] });
   };
 
   const handleTagClick = (tag: string) => {
     setActiveTag(tag);
-    addLog(`Filtro: ${tag}`, 'INFO', { tag });
+    addLog(`Filtro applicato: ${tag}`, 'INFO', { tag });
   };
 
   const filteredItems = useMemo(() => {
@@ -211,7 +214,7 @@ const App: React.FC = () => {
                     </div>
                   </div>
                   <p className="text-slate-400 font-bold uppercase tracking-widest text-xs">
-                    {status === AppState.IDLE ? "Esegui sync per visualizzare le news" : "Nessuna notizia corrisponde ai filtri"}
+                    {status === AppState.IDLE ? "Sincronizza per visualizzare i dati reali" : "Nessuna notizia corrisponde ai filtri"}
                   </p>
                 </div>
               )}
@@ -226,55 +229,67 @@ const App: React.FC = () => {
                     <div className="w-3 h-3 rounded-full bg-amber-500/20 border border-amber-500/40"></div>
                     <div className="w-3 h-3 rounded-full bg-emerald-500/20 border border-emerald-500/40"></div>
                   </div>
-                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] ml-4">Monitoraggio Canale MCP</span>
+                  <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em] ml-4">Terminal Ispezione MCP</span>
                 </div>
                 <div className="flex items-center gap-4">
-                  <span className="text-[9px] font-mono text-zinc-600 truncate max-w-[200px] hidden sm:block">{MCP_ENDPOINT}</span>
-                  <div className="h-4 w-px bg-white/10"></div>
-                  <span className="text-[10px] font-bold text-emerald-500 animate-pulse uppercase tracking-widest">Live</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-bold text-emerald-500 uppercase tracking-widest">Canale Live</span>
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                  </div>
                 </div>
               </div>
-              <div className="p-6 h-[300px] overflow-y-auto font-mono text-[11px] leading-relaxed no-scrollbar bg-black/40">
+              <div className="p-6 h-[400px] overflow-y-auto font-mono text-[11px] leading-relaxed no-scrollbar bg-black/60">
                 {logHistory.length > 0 ? (
                   logHistory.map((log, i) => (
                     <div 
                       key={i} 
                       onClick={() => openLogDetails(log)}
-                      className="flex flex-col sm:flex-row gap-2 sm:gap-4 py-2 hover:bg-white/5 cursor-pointer px-2 rounded transition-colors group/line border-b border-white/5 last:border-0"
+                      className="flex flex-col gap-1 py-3 hover:bg-white/5 cursor-pointer px-4 rounded-xl transition-all group/line border-b border-white/5 last:border-0"
                     >
-                      <div className="flex shrink-0 gap-3">
-                        <span className="text-zinc-600">[{log.timestamp}]</span>
-                        <span className={`font-bold w-20 ${
-                          log.type === 'ERROR' || log.type === 'FATAL' || log.type === 'PROXY_ERR' ? 'text-red-500' : 
-                          log.type === 'SUCCESS' ? 'text-emerald-500' : 
-                          log.type === 'WARNING' || log.type === 'OVERRIDE' ? 'text-amber-500' : 
-                          log.type === 'NETWORK' ? 'text-blue-500' : 
-                          log.type === 'PROXY' ? 'text-purple-400' : 'text-zinc-400'
+                      <div className="flex items-center gap-4">
+                        <span className="text-zinc-600 shrink-0">[{log.timestamp}]</span>
+                        <span className={`font-black text-[9px] px-2 py-0.5 rounded border ${
+                          log.type === 'ERROR' || log.type === 'FATAL' || log.type === 'PROXY_ERR' ? 'text-red-500 border-red-500/20 bg-red-500/5' : 
+                          log.type === 'SUCCESS' ? 'text-emerald-500 border-emerald-500/20 bg-emerald-500/5' : 
+                          log.type === 'WARNING' || log.type === 'OVERRIDE' ? 'text-amber-500 border-amber-500/20 bg-amber-500/5' : 
+                          log.type === 'NETWORK' ? 'text-blue-400 border-blue-400/20 bg-blue-400/5' : 
+                          log.type === 'PROXY' ? 'text-purple-400 border-purple-400/20 bg-purple-400/5' : 'text-zinc-500 border-zinc-500/20 bg-zinc-500/5'
                         }`}>
                           {log.type}
                         </span>
+                        <span className="text-zinc-300 group-hover/line:text-white transition-colors truncate">
+                          {log.message}
+                        </span>
+                        <div className="ml-auto opacity-0 group-hover/line:opacity-100 transition-opacity flex items-center gap-2">
+                          {Object.keys(log.payload || {}).length > 0 && (
+                            <span className="text-[8px] font-black text-blue-400 uppercase tracking-widest border border-blue-400/30 px-1.5 rounded">Payload</span>
+                          )}
+                          <span className="text-zinc-500 text-[8px] font-black uppercase">Inspect +</span>
+                        </div>
                       </div>
-                      <span className="text-zinc-300 group-hover/line:text-white break-all">{log.message}</span>
-                      <div className="ml-auto opacity-0 group-hover/line:opacity-100 transition-opacity flex gap-2">
-                        <span className="text-zinc-700 uppercase font-black text-[8px] self-center">Inspect +</span>
-                      </div>
+                      {log.type === 'NETWORK' && (
+                        <div className="mt-1 pl-[120px] text-[10px] text-zinc-600 italic">
+                          Target: {MCP_ENDPOINT}
+                        </div>
+                      )}
                     </div>
                   ))
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center opacity-40">
-                    <p className="text-zinc-400 uppercase tracking-[0.5em] font-black mb-2 animate-pulse">Stream Telemetria Inattivo</p>
-                    <p className="text-zinc-700 text-[10px] font-mono uppercase tracking-widest">In attesa di sincronizzazione</p>
+                    <p className="text-zinc-400 uppercase tracking-[0.5em] font-black mb-2 animate-pulse">In attesa di eventi...</p>
+                    <p className="text-zinc-700 text-[10px] font-mono uppercase tracking-widest">Premi il tasto sync per avviare il tracciamento</p>
                   </div>
                 )}
               </div>
               <div className="px-8 py-3 bg-zinc-900/30 border-t border-white/5 flex justify-between items-center">
                 <div className="flex items-center gap-2 text-zinc-600 text-[9px] font-bold uppercase">
-                  <span>Target:</span>
-                  <span className="text-emerald-500/80">RENDER_PROXY_MCP</span>
+                  <span>Proxy Status:</span>
+                  <span className="text-emerald-500/80">CONNECTED</span>
                 </div>
                 {isRefreshing && (
-                  <span className="text-amber-500 text-[9px] font-black uppercase tracking-widest animate-pulse">
-                    Streaming data from Server...
+                  <span className="text-amber-500 text-[9px] font-black uppercase tracking-widest animate-pulse flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 bg-current rounded-full"></span>
+                    Ispezione pacchetti in corso...
                   </span>
                 )}
               </div>

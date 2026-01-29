@@ -8,29 +8,48 @@ router.post("/news", async (req, res) => {
   const trace: string[] = [];
   
   const addTrace = (msg: string) => {
-    const timestamp = new Date().toLocaleTimeString();
     const formatted = `[Server][${requestId}] ${msg}`;
     console.log(formatted);
-    trace.push(msg); // Memorizziamo solo il messaggio pulito per il client
+    trace.push(msg);
   };
 
-  addTrace("Ricevuta richiesta proxy");
+  addTrace("INIZIO OPERAZIONE PROXY");
   
-  const clientToken = req.body?.token;
+  // 1. Ispezione Payload in entrata
+  const incomingBody = req.body || {};
+  addTrace(`Payload ricevuto dal frontend: ${JSON.stringify(incomingBody)}`);
+
+  const clientToken = incomingBody.token;
   const envToken = process.env.MCP_TOKEN;
   const finalToken = clientToken || envToken;
+  const params = incomingBody.params || {};
 
-  addTrace(`Sorgente Token: ${clientToken ? 'CLIENT_BODY' : (envToken ? 'SERVER_ENV' : 'MANCANTE')}`);
+  // 2. Valutazione Integrità Dati
+  const hasToken = !!finalToken;
+  const hasParams = !!incomingBody.params;
+  const tokenSource = clientToken ? 'CLIENT_BODY' : (envToken ? 'SERVER_ENV' : 'MISSING');
+  
+  addTrace(`VALIDAZIONE DATI: [Token: ${hasToken ? 'PRESENT' : 'MISSING'}] [Params: ${hasParams ? 'PRESENT' : 'MISSING'}]`);
+  addTrace(`Sorgente Identificata Token: ${tokenSource}`);
 
   if (!finalToken) {
-    addTrace("ERRORE: Autorizzazione fallita (Token null)");
+    addTrace("ERRORE CRITICO: Impossibile procedere senza token di autorizzazione.");
     res.setHeader("X-Proxy-Trace", JSON.stringify(trace));
-    return res.status(401).json({ error: "Token MCP mancante" });
+    return res.status(401).json({ error: "Token MCP mancante per la richiesta" });
   }
 
   try {
     const mcpTarget = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
-    addTrace(`Inoltro a n8n: ${mcpTarget.split('://')[1]}`);
+    
+    // 3. Preparazione Payload per n8n
+    const n8nPayload = {
+      method: "NewsAI",
+      token: finalToken,
+      params: params,
+    };
+
+    addTrace(`PREPARAZIONE CHIAMATA MCP: Inoltro verso ${mcpTarget.split('://')[1]}`);
+    addTrace(`Payload in uscita verso n8n: ${JSON.stringify(n8nPayload)}`);
 
     const mcpResponse = await fetch(mcpTarget, {
       method: "POST",
@@ -38,20 +57,16 @@ router.post("/news", async (req, res) => {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${finalToken}`,
       },
-      body: JSON.stringify({
-        method: "NewsAI",
-        token: finalToken,
-        params: req.body?.params ?? { tags: [] },
-      }),
+      body: JSON.stringify(n8nPayload),
       signal: AbortSignal.timeout(60000), 
     });
 
-    addTrace(`n8n ha risposto con status: ${mcpResponse.status}`);
+    addTrace(`RISPOSTA MCP RICEVUTA: Status ${mcpResponse.status} ${mcpResponse.statusText}`);
 
     const contentType = mcpResponse.headers.get("content-type");
     const responseData = await mcpResponse.text();
 
-    // Inviamo i log del server nell'header prima di chiudere la risposta
+    // Inviamo i log del server nell'header
     res.setHeader("Access-Control-Expose-Headers", "X-Proxy-Trace");
     res.setHeader("X-Proxy-Trace", JSON.stringify(trace));
     
@@ -60,7 +75,7 @@ router.post("/news", async (req, res) => {
     res.send(responseData);
 
   } catch (err: any) {
-    addTrace(`ECCEZIONE: ${err.message}`);
+    addTrace(`ECCEZIONE DURANTE L'INOLTRO: ${err.message}`);
     res.setHeader("Access-Control-Expose-Headers", "X-Proxy-Trace");
     res.setHeader("X-Proxy-Trace", JSON.stringify(trace));
     res.status(502).json({ error: "Proxy Exception", detail: err.message });

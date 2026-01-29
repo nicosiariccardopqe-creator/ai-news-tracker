@@ -2,62 +2,52 @@
 import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
-// Endpoint MCP aggiornato all'URL completo richiesto
-export const MCP_ENDPOINT = 'https://docker-n8n-xngg.onrender.com/mcp-server/http';
+export const MCP_ENDPOINT = '/api/news';
+
+export interface FetchNewsResult {
+  data: NewsResponse;
+  trace: string[];
+}
 
 /**
- * Tenta di recuperare le news dal server primario.
- * Se fallisce, solleva un errore per permettere il logging dello stack trace.
+ * Recupera le news tramite il proxy locale.
+ * Ritorna sia i dati che il tracciamento delle attività del server.
  */
-export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
+export async function fetchNews(params: { tags?: string[] } = {}, token?: string): Promise<FetchNewsResult> {
   try {
-    const token = process.env.MCP_TOKEN || 'MISSING_TOKEN';
-    
-    // Log di controllo interno
-    if (token === 'MISSING_TOKEN') {
-      console.warn('[NewsService] Attenzione: MCP_TOKEN non configurato.');
-    }
-
-    // Chiamata all'endpoint MCP assoluto
     const response = await fetch(MCP_ENDPOINT, {
-      method: 'POST',
-      headers: { 
-        'Content-Type': 'application/json',
-        'Authorization': `${token}`
-      },
-      body: JSON.stringify({
-        method: "NewsAI",
-        token: token, // Incluso nel payload come richiesto
-        params: params
-      }),
-      signal: AbortSignal.timeout(60000) // 60s per gestire il cold start di Render
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ params, token }),
+      signal: AbortSignal.timeout(65000) 
     });
 
+    // Estrazione del tracciamento dagli header
+    const traceHeader = response.headers.get("X-Proxy-Trace");
+    let trace: string[] = [];
+    try {
+      if (traceHeader) trace = JSON.parse(traceHeader);
+    } catch (e) {
+      console.warn("Impossibile decodificare X-Proxy-Trace");
+    }
+
     if (!response.ok) {
-      const errorInfo = await response.text().catch(() => response.statusText);
-      throw new Error(`Server MCP [${response.status}]: ${errorInfo}`);
+      const errorText = await response.text().catch(() => response.statusText);
+      const err = new Error(`Proxy Error [${response.status}]: ${errorText}`);
+      (err as any).trace = trace; // Alleghiamo il trace all'errore
+      throw err;
     }
 
-    return await response.json();
+    const data = await response.json();
+    return { data, trace };
   } catch (error: any) {
-    let errorMessage = error.message;
-
-    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-      errorMessage = "Timeout (60s). Il server Render potrebbe essere in fase di avvio o sovraccarico.";
-    } else if (errorMessage === 'Failed to fetch') {
-      errorMessage = "Failed to fetch: Errore CORS o rete. Verifica se il server MCP è attivo e accetta l'origine.";
-    }
-
-    const stackError = new Error(`Errore connessione MCP [${MCP_ENDPOINT}]: ${errorMessage}`);
-    (stackError as any).isProviderError = true;
+    const stackError = new Error(error.message);
+    (stackError as any).trace = error.trace || [];
     (stackError as any).originalStack = error.stack;
     throw stackError;
   }
 }
 
-/**
- * Caricamento di emergenza dai dati locali (Fallback)
- */
 export async function fetchMockNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   await new Promise(resolve => setTimeout(resolve, 400));
   const activeTag = params.tags?.[0] || 'TUTTE';

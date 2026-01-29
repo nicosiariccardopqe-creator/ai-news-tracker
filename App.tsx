@@ -24,7 +24,7 @@ const App: React.FC = () => {
     const newLog: ErrorDetail = {
       message,
       timestamp: new Date().toLocaleTimeString(),
-      type,
+      type: type.toUpperCase(),
       payload,
       stack: stack || 'No stack trace available'
     };
@@ -48,43 +48,39 @@ const App: React.FC = () => {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    // Recupero del token per il log
     const mcpToken = process.env.MCP_TOKEN || 'NON_CONFIGURATO';
     const requestParams = { tags: [] }; 
-    const activeTools = ['NewsAI'];
+    const fullPayload = { params: requestParams, token: mcpToken };
     
-    // Payload completo che include il token per visibilità nel terminale
-    const fullPayload = {
-      method: "NewsAI",
-      token: mcpToken,
-      params: requestParams
-    };
-    
-    const payloadStr = JSON.stringify(fullPayload);
-    const toolsStr = activeTools.join(', ');
-    
-    // Log dettagliato nel terminale UI
-    addLog(`POST ${MCP_ENDPOINT} | PAYLOAD: ${payloadStr}`, 'NETWORK', { 
-      fullUrl: MCP_ENDPOINT, 
-      tools: activeTools, 
-      payload: fullPayload 
-    });
+    addLog(`POST ${MCP_ENDPOINT} | SYNC START`, 'NETWORK', fullPayload);
 
     try {
-      const response = await fetchNews(requestParams);
-      setItems(response.items);
+      const { data, trace } = await fetchNews(requestParams, mcpToken);
+      
+      // Visualizziamo ogni step del server nel terminale locale
+      if (trace && trace.length > 0) {
+        trace.forEach(msg => addLog(msg, 'PROXY'));
+      }
+
+      setItems(data.items);
       setStatus(AppState.SUCCESS);
-      addLog(`SUCCESS [200]: News ricevute correttamente tramite ${toolsStr}.`, 'SUCCESS');
+      addLog(`SUCCESS [200]: News caricate correttamente.`, 'SUCCESS');
     } catch (error: any) {
       console.error("MCP Sync Error:", error);
+      
+      // Mostriamo il trace anche in caso di errore
+      if (error.trace && error.trace.length > 0) {
+        error.trace.forEach((msg: string) => addLog(msg, 'PROXY_ERR'));
+      }
+
       addLog(
         `SYNC FAIL: ${error.message}`, 
         'ERROR', 
-        { endpoint: MCP_ENDPOINT, tools: activeTools, sentPayload: fullPayload }, 
+        { endpoint: MCP_ENDPOINT, sentPayload: fullPayload }, 
         error.stack || error.originalStack
       );
 
-      addLog("Avvio procedura di fallback locale...", 'SYSTEM');
+      addLog("Inizializzazione fallback locale...", 'SYSTEM');
       await loadFallback(requestParams);
     } finally {
       setIsRefreshing(false);
@@ -92,14 +88,14 @@ const App: React.FC = () => {
   }, [isRefreshing]);
 
   const handleForceDefault = async () => {
-    addLog("OVERRIDE MANUALE: Forza caricamento dataset locale.", 'OVERRIDE');
+    addLog("OVERRIDE MANUALE: Dataset locale.", 'OVERRIDE');
     setIsRefreshing(false);
     await loadFallback({ tags: [] });
   };
 
   const handleTagClick = (tag: string) => {
     setActiveTag(tag);
-    addLog(`Filtro Locale: Visualizzazione categoria "${tag}"`, 'INFO', { tag });
+    addLog(`Filtro: ${tag}`, 'INFO', { tag });
   };
 
   const filteredItems = useMemo(() => {
@@ -249,19 +245,17 @@ const App: React.FC = () => {
                       <div className="flex shrink-0 gap-3">
                         <span className="text-zinc-600">[{log.timestamp}]</span>
                         <span className={`font-bold w-20 ${
-                          log.type === 'ERROR' || log.type === 'FATAL' ? 'text-red-500' : 
+                          log.type === 'ERROR' || log.type === 'FATAL' || log.type === 'PROXY_ERR' ? 'text-red-500' : 
                           log.type === 'SUCCESS' ? 'text-emerald-500' : 
                           log.type === 'WARNING' || log.type === 'OVERRIDE' ? 'text-amber-500' : 
-                          log.type === 'NETWORK' ? 'text-blue-500' : 'text-zinc-400'
+                          log.type === 'NETWORK' ? 'text-blue-500' : 
+                          log.type === 'PROXY' ? 'text-purple-400' : 'text-zinc-400'
                         }`}>
                           {log.type}
                         </span>
                       </div>
                       <span className="text-zinc-300 group-hover/line:text-white break-all">{log.message}</span>
                       <div className="ml-auto opacity-0 group-hover/line:opacity-100 transition-opacity flex gap-2">
-                        {log.stack !== 'No stack trace available' && (
-                          <span className="bg-red-500/10 text-red-500 px-1.5 py-0.5 rounded text-[8px] font-black uppercase border border-red-500/20">Stack</span>
-                        )}
                         <span className="text-zinc-700 uppercase font-black text-[8px] self-center">Inspect +</span>
                       </div>
                     </div>
@@ -269,7 +263,7 @@ const App: React.FC = () => {
                 ) : (
                   <div className="h-full flex flex-col items-center justify-center opacity-40">
                     <p className="text-zinc-400 uppercase tracking-[0.5em] font-black mb-2 animate-pulse">Stream Telemetria Inattivo</p>
-                    <p className="text-zinc-700 text-[10px] font-mono uppercase tracking-widest">In attesa di sincronizzazione con il server MCP</p>
+                    <p className="text-zinc-700 text-[10px] font-mono uppercase tracking-widest">In attesa di sincronizzazione</p>
                   </div>
                 )}
               </div>
@@ -280,7 +274,7 @@ const App: React.FC = () => {
                 </div>
                 {isRefreshing && (
                   <span className="text-amber-500 text-[9px] font-black uppercase tracking-widest animate-pulse">
-                    Streaming data from Render...
+                    Streaming data from Server...
                   </span>
                 )}
               </div>

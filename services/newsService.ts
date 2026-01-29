@@ -11,12 +11,17 @@ export const MCP_ENDPOINT = 'https://docker-n8n-xngg.onrender.com/mcp-server/htt
  */
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   try {
+    
+    const token = process.env.MCP_TOKEN; // mettilo su Render/hosting come variabile ambiente
+    if (!token) throw new Error("MCP_TOKEN mancante nelle variabili d'ambiente");
+
     // Chiamata all'endpoint MCP assoluto
     // Aumentiamo il timeout a 60 secondi perché Render (free tier) può impiegare molto tempo per lo spin-up (cold start)
     const response = await fetch(MCP_ENDPOINT, {
       method: 'POST',
       headers: { 
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
         method: "NewsAI", // Tool corretto come richiesto

@@ -57,7 +57,6 @@ const App: React.FC = () => {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    const currentParams = { tags: activeTag === 'TUTTE' ? [] : [activeTag] };
     addLog(`INVIO RICHIESTA JSON-RPC 2.0 (Tool: execute_workflow)`, "NETWORK", {
       jsonrpc: "2.0",
       method: "tools/call",
@@ -68,7 +67,7 @@ const App: React.FC = () => {
 
     try {
       const result = await fetchNews(
-        currentParams,
+        { tags: activeTag === 'TUTTE' ? [] : [activeTag] },
         undefined,
         abortControllerRef.current.signal
       );
@@ -79,39 +78,64 @@ const App: React.FC = () => {
 
       addLog(`RISPOSTA SERVER RICEVUTA`, "SUCCESS", result.data);
 
-      // ESTRAZIONE DATI: Gestiamo sia array diretto che formato MCP result.content
-      let rawItems: any[] = [];
-      // Fix: Cast result.data to any to safely check for polymorphic response properties like 'result' or 'items'
       const responseData: any = result.data;
+      let rawItems: any[] = [];
+
+      // PERCORSO SPECIFICO N8N RICHIESTO: 
+      // data -> result -> structuredContent -> result -> runData -> Combine All Posts -> data -> main -> json -> data
+      // Gestiamo la possibile presenza di array intermedi [0] tipici di n8n
+      const n8nBase = responseData?.result?.structuredContent?.result?.runData?.['Combine All Posts'];
       
-      if (Array.isArray(responseData)) {
-        rawItems = responseData;
-      } else if (responseData?.result?.content) {
-        const content = responseData.result.content.find((c: any) => c.type === 'text');
-        if (content && content.text) {
-          try {
-            const parsed = JSON.parse(content.text);
-            rawItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
-          } catch {
-            addLog("Impossibile parsare il testo nel content MCP", "ERROR");
-          }
+      if (n8nBase) {
+        // n8n spesso restituisce runData come array di esecuzioni del nodo
+        const executionData = Array.isArray(n8nBase) ? n8nBase[0]?.data : n8nBase.data;
+        const mainData = executionData?.main;
+        const jsonContainer = Array.isArray(mainData) ? mainData[0]?.json : mainData?.json;
+        const finalData = jsonContainer?.data;
+
+        if (Array.isArray(finalData)) {
+          rawItems = finalData;
+          addLog(`Dati estratti dal percorso profondo n8n (Combine All Posts)`, "SYSTEM");
         }
-      } else if (responseData?.items) {
-        rawItems = responseData.items;
       }
 
-      // MAPPING RICHIESTO: title, link, contentSnippet, pubDate, categories
+      // Fallback a percorsi standard se il percorso profondo non ha prodotto risultati
+      if (rawItems.length === 0) {
+        if (Array.isArray(responseData)) {
+          rawItems = responseData;
+        } else if (responseData?.result?.content) {
+          const content = responseData.result.content.find((c: any) => c.type === 'text');
+          if (content && content.text) {
+            try {
+              const parsed = JSON.parse(content.text);
+              rawItems = Array.isArray(parsed) ? parsed : (parsed.items || []);
+            } catch { /* ignore */ }
+          }
+        } else if (responseData?.items) {
+          rawItems = responseData.items;
+        }
+      }
+
+      // MAPPING RICHIESTO: 
+      // 1. title -> title
+      // 2. link -> url
+      // 3. contentSnippet -> summary
+      // 4. puibbDate -> published_at
+      // 5. categories -> tags
       const mappedItems: NewsItem[] = rawItems.map((raw: any, index: number) => ({
         id: raw.id || `n8n-${Date.now()}-${index}`,
         title: raw.title || "Senza Titolo",
         url: raw.link || "#",
-        summary: raw.contentSnippet || raw.summary || "Nessun sommario disponibile.",
-        published_at: raw.pubDate || raw.puibbDate || raw.published_at || new Date().toISOString(),
-        tags: Array.isArray(raw.categories) ? raw.categories : (raw.tags || ["AI"]),
-        source: raw.source || { name: 'N8N FEED', domain: 'n8n.io' },
+        summary: raw.contentSnippet || "Nessun sommario disponibile.",
+        published_at: raw.puibbDate || raw.pubDate || new Date().toISOString(),
+        tags: Array.isArray(raw.categories) ? raw.categories : ["AI"],
+        source: { 
+          name: (raw.source && typeof raw.source === 'string' ? raw.source : (raw.source?.name || 'N8N FEED')), 
+          domain: (raw.source?.domain || 'n8n.io') 
+        },
         fetched_at: new Date().toISOString(),
-        language: raw.language || 'it',
-        score: raw.score || { freshness: 1, relevance: 1, popularity: 1 }
+        language: 'it',
+        score: { freshness: 1, relevance: 1, popularity: 1 }
       }));
 
       setItems(mappedItems);
@@ -124,11 +148,6 @@ const App: React.FC = () => {
         addLog("Richiesta annullata dall'utente.", "SYSTEM");
         return;
       }
-      
-      if (error.serverTrace) {
-        error.serverTrace.forEach((msg: string) => addLog(msg, "ERROR"));
-      }
-
       addLog(`ERRORE PIPELINE: ${error.message || 'Errore di connessione'}`, "ERROR", error.payload || error);
       setStatus(AppState.ERROR);
     } finally {

@@ -1,14 +1,13 @@
 
 import React, { useState, useCallback, useMemo, useRef } from 'react';
 import { AppState, NewsItem, ErrorDetail } from './types';
-import { fetchNews, checkProxyConnectivity, testDirectConnectivity } from './services/newsService';
+import { fetchNews, checkProxyConnectivity, testDirectConnectivity, MCP_ENDPOINT } from './services/newsService';
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
 import DebugModal from './components/DebugModal';
 import { CATEGORIES, MOCK_INITIAL_NEWS } from './constants';
 
 const App: React.FC = () => {
-  // Avvio rigorosamente con i mock senza chiamate di rete automatiche
   const [items, setItems] = useState<NewsItem[]>(MOCK_INITIAL_NEWS);
   const [status, setStatus] = useState<AppState>(AppState.IDLE);
   const [activeTag, setActiveTag] = useState('TUTTE');
@@ -20,7 +19,6 @@ const App: React.FC = () => {
   const [selectedLog, setSelectedLog] = useState<ErrorDetail | null>(null);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
 
-  // Riferimento per annullare la chiamata fetch in corso
   const abortControllerRef = useRef<AbortController | null>(null);
 
   const addLog = (message: string, type: string = 'INFO', payload: any = {}, stack?: string) => {
@@ -40,12 +38,11 @@ const App: React.FC = () => {
       abortControllerRef.current = null;
       setIsRefreshing(false);
       setStatus(AppState.IDLE);
-      addLog("SINC INTERROTTA DALL'UTENTE", 'SYSTEM');
+      addLog("SINC INTERROTTA DALL'UTENTE", 'SYSTEM', { action: "abort_triggered" });
     }
   };
 
   const handleRefresh = useCallback(async () => {
-    // Se è già in corso, il pulsante funge da STOP
     if (isRefreshing) {
       handleStopRefresh();
       return;
@@ -55,50 +52,65 @@ const App: React.FC = () => {
     setStatus(AppState.LOADING);
     
     const mcpToken = process.env.MCP_TOKEN;
-    addLog(`Avvio sincronizzazione...`, 'NETWORK');
+    const params = { tags: activeTag === 'TUTTE' ? [] : [activeTag] };
+
+    // RIPRISTINO PAYLOAD NEL LOG
+    addLog(`Avvio sincronizzazione...`, 'NETWORK', { 
+      endpoint: MCP_ENDPOINT,
+      params: params,
+      token_status: mcpToken ? 'PRESENT (REDACTED)' : 'MISSING',
+      browser_info: navigator.userAgent.slice(0, 50) + "..."
+    });
 
     abortControllerRef.current = new AbortController();
 
     try {
-      const { data } = await fetchNews({ tags: [] }, mcpToken, abortControllerRef.current.signal);
+      const { data } = await fetchNews(params, mcpToken, abortControllerRef.current.signal);
       const newsItems = data.items || [];
       setItems(newsItems);
       setStatus(newsItems.length ? AppState.SUCCESS : AppState.EMPTY);
-      addLog(`Sincronizzazione completata: ${newsItems.length} news caricate.`, 'SUCCESS');
+      addLog(`Sincronizzazione completata: ${newsItems.length} news caricate.`, 'SUCCESS', { 
+        count: newsItems.length,
+        generated_at: data.generated_at 
+      });
     } catch (error: any) {
-      if (error.message.includes("interrotta")) {
-        // Silenzioso, gestito da handleStopRefresh
+      if (error.name === 'AbortError' || error.message.includes("interrotta")) {
+        // Interruzione manuale già loggata
       } else {
-        // In caso di 502 o altri errori, mostriamo il dettaglio
-        addLog(`ERRORE SYNC: ${error.message}`, 'ERROR', { detail: "Controlla il server n8n o il token" });
+        addLog(`ERRORE SYNC: ${error.message}`, 'ERROR', { 
+          error_name: error.name,
+          full_message: error.message,
+          suggestion: "Se vedi 502, n8n potrebbe essere spento o il token errato."
+        }, error.stack);
         setStatus(AppState.ERROR);
       }
     } finally {
       setIsRefreshing(false);
       abortControllerRef.current = null;
     }
-  }, [isRefreshing]);
+  }, [isRefreshing, activeTag]);
 
   const handleRunDiagnostics = async () => {
     if (isDiagnosing) return;
     setIsDiagnosing(true);
-    addLog("AVVIO DIAGNOSTICA STACK...", "SYSTEM");
+    addLog("AVVIO DIAGNOSTICA STACK...", "SYSTEM", { timestamp: Date.now() });
 
     try {
       addLog("Verifica Service Worker Proxy...", "DEBUG");
       const proxyStatus = await checkProxyConnectivity();
-      addLog(`Proxy STATUS: ${proxyStatus.status} (${proxyStatus.mode})`, "SUCCESS");
+      addLog(`Proxy STATUS: ${proxyStatus.status}`, "SUCCESS", proxyStatus);
 
       addLog("Test connettività n8n...", "DEBUG");
       const direct = await testDirectConnectivity();
-      addLog(direct ? "n8n Reachable" : "n8n Unreachable (CORS?)", direct ? "SUCCESS" : "WARNING");
+      addLog(direct ? "n8n Reachable" : "n8n Unreachable", direct ? "SUCCESS" : "WARNING", { direct_check: direct });
 
       addLog("Test Fetch News (DIAG)...", "DEBUG");
       const token = process.env.MCP_TOKEN;
-      await fetchNews({ tags: ["DIAG"] }, token);
-      addLog("Flusso dati completo OK.", "SUCCESS");
+      const diagParams = { tags: ["DIAG"] };
+      await fetchNews(diagParams, token);
+      addLog("Flusso dati completo OK.", "SUCCESS", { params: diagParams });
     } catch (err: any) {
-      addLog(`FALLIMENTO: ${err.message}`, "FATAL", {}, err.stack);
+      addLog(`FALLIMENTO: ${err.message}`, "FATAL", { error: err.message }, err.stack);
     } finally {
       setIsDiagnosing(false);
     }
@@ -136,18 +148,15 @@ const App: React.FC = () => {
                   </div>
                </div>
                
-               {/* PULSANTE DUAL ACTION: REFRESH O STOP */}
                <button 
                 onClick={handleRefresh} 
                 className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-900 hover:bg-black'} text-white shadow-2xl`}
                >
                  {isRefreshing ? (
-                   /* ICONA STOP (X) */
                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" />
                    </svg>
                  ) : (
-                   /* ICONA REFRESH */
                    <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
                    </svg>
@@ -187,7 +196,6 @@ const App: React.FC = () => {
               )}
             </div>
 
-            {/* TERMINALE DIAGNOSTICO */}
             <section className="bg-[#050505] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12">
               <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex justify-between items-center">
                 <div className="flex items-center gap-4">

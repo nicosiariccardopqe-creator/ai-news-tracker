@@ -49,26 +49,26 @@ export async function fetchNews(
   token?: string, 
   signal?: AbortSignal
 ): Promise<FetchNewsResult> {
-  try {
-    const response = await fetch(MCP_ENDPOINT, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ params, token }),
-      signal: signal // Passiamo il segnale di interruzione
-    });
+  const response = await fetch(MCP_ENDPOINT, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ params, token }),
+    signal: signal 
+  });
 
-    if (!response.ok) {
-      throw new Error(`Errore API [${response.status}]`);
+  if (!response.ok) {
+    let detail = "Errore sconosciuto";
+    try {
+      const errorData = await response.json();
+      detail = errorData.detail || errorData.error || JSON.stringify(errorData);
+    } catch (e) {
+      detail = await response.text();
     }
-
-    const data = await response.json();
-    return { data, trace: ["Richiesta gestita da Service Worker Proxy"] };
-  } catch (error: any) {
-    if (error.name === 'AbortError') {
-      throw new Error("Sincronizzazione interrotta dall'utente.");
-    }
-    throw new Error(error.message);
+    throw new Error(`[${response.status}] ${detail}`);
   }
+
+  const data = await response.json();
+  return { data, trace: ["Richiesta gestita da Service Worker Proxy"] };
 }
 
 export async function fetchMockNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {

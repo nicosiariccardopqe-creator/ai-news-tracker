@@ -3,6 +3,16 @@ import { Router } from "express";
 
 const router = Router();
 
+// Endpoint rapido per verificare se il proxy risponde
+router.get("/status", (req, res) => {
+  res.json({
+    status: "online",
+    timestamp: new Date().toISOString(),
+    env_token_present: !!process.env.MCP_TOKEN,
+    node_version: process.version
+  });
+});
+
 router.post("/news", async (req, res) => {
   const requestId = Math.random().toString(36).substring(7);
   const trace: string[] = [];
@@ -26,30 +36,31 @@ router.post("/news", async (req, res) => {
 
   // 2. Valutazione Integrità Dati
   const hasToken = !!finalToken;
-  const hasParams = !!incomingBody.params;
   const tokenSource = clientToken ? 'CLIENT_BODY' : (envToken ? 'SERVER_ENV' : 'MISSING');
   
-  addTrace(`VALIDAZIONE DATI: [Token: ${hasToken ? 'PRESENT' : 'MISSING'}] [Params: ${hasParams ? 'PRESENT' : 'MISSING'}]`);
-  addTrace(`Sorgente Identificata Token: ${tokenSource}`);
+  addTrace(`VALIDAZIONE: [Token: ${hasToken ? 'PRESENTE' : 'MANCANTE'}] [Fonte: ${tokenSource}]`);
 
   if (!finalToken) {
-    addTrace("ERRORE CRITICO: Impossibile procedere senza token di autorizzazione.");
+    addTrace("ERRORE CRITICO: Nessun token trovato. La richiesta non può procedere.");
     res.setHeader("X-Proxy-Trace", JSON.stringify(trace));
-    return res.status(401).json({ error: "Token MCP mancante per la richiesta" });
+    return res.status(401).json({ error: "Token MCP mancante", trace });
   }
 
   try {
     const mcpTarget = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
-    
-    // 3. Preparazione Payload per n8n
     const n8nPayload = {
       method: "NewsAI",
       token: finalToken,
       params: params,
     };
 
-    addTrace(`PREPARAZIONE CHIAMATA MCP: Inoltro verso ${mcpTarget.split('://')[1]}`);
-    addTrace(`Payload in uscita verso n8n: ${JSON.stringify(n8nPayload)}`);
+    addTrace(`CHIAMATA MCP -> Target: ${mcpTarget}`);
+    addTrace(`Intestazioni: Content-Type: application/json, Authorization: Bearer [REDACTED]`);
+    addTrace(`Corpo inviato a n8n: ${JSON.stringify(n8nPayload)}`);
+
+    // Utilizziamo un timeout leggermente più basso per il test interno se necessario
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 55000);
 
     const mcpResponse = await fetch(mcpTarget, {
       method: "POST",
@@ -58,15 +69,22 @@ router.post("/news", async (req, res) => {
         "Authorization": `Bearer ${finalToken}`,
       },
       body: JSON.stringify(n8nPayload),
-      signal: AbortSignal.timeout(60000), 
+      signal: controller.signal, 
     });
 
-    addTrace(`RISPOSTA MCP RICEVUTA: Status ${mcpResponse.status} ${mcpResponse.statusText}`);
+    clearTimeout(timeoutId);
 
+    addTrace(`RISPOSTA DA N8N: HTTP ${mcpResponse.status}`);
+    
     const contentType = mcpResponse.headers.get("content-type");
     const responseData = await mcpResponse.text();
 
-    // Inviamo i log del server nell'header
+    if (mcpResponse.ok) {
+      addTrace("Sincronizzazione completata con successo.");
+    } else {
+      addTrace(`Avviso: n8n ha restituito un errore: ${responseData.slice(0, 100)}...`);
+    }
+
     res.setHeader("Access-Control-Expose-Headers", "X-Proxy-Trace");
     res.setHeader("X-Proxy-Trace", JSON.stringify(trace));
     
@@ -75,10 +93,11 @@ router.post("/news", async (req, res) => {
     res.send(responseData);
 
   } catch (err: any) {
-    addTrace(`ECCEZIONE DURANTE L'INOLTRO: ${err.message}`);
+    const errorMsg = err.name === 'AbortError' ? 'Timeout (n8n non ha risposto in tempo)' : err.message;
+    addTrace(`ERRORE DI RETE/PROXY: ${errorMsg}`);
     res.setHeader("Access-Control-Expose-Headers", "X-Proxy-Trace");
     res.setHeader("X-Proxy-Trace", JSON.stringify(trace));
-    res.status(502).json({ error: "Proxy Exception", detail: err.message });
+    res.status(502).json({ error: "Proxy Exception", detail: errorMsg, trace });
   }
 });
 

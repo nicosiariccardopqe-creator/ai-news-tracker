@@ -2,7 +2,9 @@
 import { NewsItem, NewsResponse } from '../types';
 import { MOCK_INITIAL_NEWS } from '../constants';
 
+// Percorsi relativi che verranno intercettati dal Service Worker
 export const MCP_ENDPOINT = '/api/news';
+export const STATUS_ENDPOINT = '/api/status';
 
 export interface FetchNewsResult {
   data: NewsResponse;
@@ -10,8 +12,38 @@ export interface FetchNewsResult {
 }
 
 /**
- * Recupera le news tramite il proxy locale.
- * Ritorna sia i dati che il tracciamento delle attività del server.
+ * Verifica se il proxy (Service Worker) risponde
+ */
+export async function checkProxyConnectivity(): Promise<any> {
+  console.log(`[Diagnostic] Test su: ${STATUS_ENDPOINT}`);
+  
+  // Attendiamo che il SW sia attivo se necessario
+  if ('serviceWorker' in navigator) {
+    await navigator.serviceWorker.ready;
+  }
+
+  const response = await fetch(STATUS_ENDPOINT);
+  if (!response.ok) {
+    throw new Error(`Proxy (SW) risponde con errore ${response.status}`);
+  }
+  return await response.json();
+}
+
+/**
+ * Tenta una chiamata diretta a n8n per debug
+ */
+export async function testDirectConnectivity(): Promise<boolean> {
+  try {
+    const target = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
+    const res = await fetch(target, { method: 'OPTIONS' });
+    return res.ok || res.status === 405; // 405 è OK per OPTIONS se CORS è parziale
+  } catch (e) {
+    return false;
+  }
+}
+
+/**
+ * Recupera le news. La chiamata viene intercettata dal Service Worker in sw.js
  */
 export async function fetchNews(params: { tags?: string[] } = {}, token?: string): Promise<FetchNewsResult> {
   try {
@@ -19,37 +51,21 @@ export async function fetchNews(params: { tags?: string[] } = {}, token?: string
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ params, token }),
-      signal: AbortSignal.timeout(65000) 
     });
 
-    // Estrazione del tracciamento dagli header
-    const traceHeader = response.headers.get("X-Proxy-Trace");
-    let trace: string[] = [];
-    try {
-      if (traceHeader) trace = JSON.parse(traceHeader);
-    } catch (e) {
-      console.warn("Impossibile decodificare X-Proxy-Trace");
-    }
-
     if (!response.ok) {
-      const errorText = await response.text().catch(() => response.statusText);
-      const err = new Error(`Proxy Error [${response.status}]: ${errorText}`);
-      (err as any).trace = trace; // Alleghiamo il trace all'errore
-      throw err;
+      throw new Error(`Errore API [${response.status}]`);
     }
 
     const data = await response.json();
-    return { data, trace };
+    return { data, trace: ["Richiesta gestita da Service Worker Proxy"] };
   } catch (error: any) {
-    const stackError = new Error(error.message);
-    (stackError as any).trace = error.trace || [];
-    (stackError as any).originalStack = error.stack;
-    throw stackError;
+    throw new Error(error.message);
   }
 }
 
 export async function fetchMockNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
-  await new Promise(resolve => setTimeout(resolve, 400));
+  await new Promise(resolve => setTimeout(resolve, 600));
   const activeTag = params.tags?.[0] || 'TUTTE';
   
   let filtered = MOCK_INITIAL_NEWS;
@@ -61,21 +77,10 @@ export async function fetchMockNews(params: { tags?: string[] } = {}): Promise<N
 
   return {
     generated_at: new Date().toISOString(),
-    source_version: 'local-fallback-v1',
-    items: dedupeAndSort(filtered),
+    source_version: 'local-fallback-v2',
+    items: filtered,
     paging: { next_cursor: null, count: filtered.length }
   };
-}
-
-export function dedupeAndSort(arr: NewsItem[]): NewsItem[] {
-  const map = new Map<string, NewsItem>();
-  for (const it of arr) {
-    const key = (it.title || '').toLowerCase().trim();
-    if (key && !map.has(key)) map.set(key, it);
-  }
-  return Array.from(map.values()).sort((a, b) => 
-    new Date(b.published_at).getTime() - new Date(a.published_at).getTime()
-  );
 }
 
 export function trackTelemetry(event: string, data?: any) { 

@@ -17,7 +17,6 @@ export interface FetchNewsResult {
 export async function checkProxyConnectivity(): Promise<any> {
   console.log(`[Diagnostic] Test su: ${STATUS_ENDPOINT}`);
   
-  // Attendiamo che il SW sia attivo se necessario
   if ('serviceWorker' in navigator) {
     await navigator.serviceWorker.ready;
   }
@@ -36,21 +35,26 @@ export async function testDirectConnectivity(): Promise<boolean> {
   try {
     const target = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
     const res = await fetch(target, { method: 'OPTIONS' });
-    return res.ok || res.status === 405; // 405 è OK per OPTIONS se CORS è parziale
+    return res.ok || res.status === 405; 
   } catch (e) {
     return false;
   }
 }
 
 /**
- * Recupera le news. La chiamata viene intercettata dal Service Worker in sw.js
+ * Recupera le news. Supporta l'interruzione tramite AbortSignal.
  */
-export async function fetchNews(params: { tags?: string[] } = {}, token?: string): Promise<FetchNewsResult> {
+export async function fetchNews(
+  params: { tags?: string[] } = {}, 
+  token?: string, 
+  signal?: AbortSignal
+): Promise<FetchNewsResult> {
   try {
     const response = await fetch(MCP_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ params, token }),
+      signal: signal // Passiamo il segnale di interruzione
     });
 
     if (!response.ok) {
@@ -60,6 +64,9 @@ export async function fetchNews(params: { tags?: string[] } = {}, token?: string
     const data = await response.json();
     return { data, trace: ["Richiesta gestita da Service Worker Proxy"] };
   } catch (error: any) {
+    if (error.name === 'AbortError') {
+      throw new Error("Sincronizzazione interrotta dall'utente.");
+    }
     throw new Error(error.message);
   }
 }

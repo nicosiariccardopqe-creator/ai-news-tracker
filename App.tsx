@@ -1,14 +1,15 @@
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { AppState, NewsItem, ErrorDetail } from './types';
 import { fetchNews, fetchMockNews, checkProxyConnectivity, testDirectConnectivity } from './services/newsService';
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
 import DebugModal from './components/DebugModal';
-import { CATEGORIES } from './constants';
+import { CATEGORIES, MOCK_INITIAL_NEWS } from './constants';
 
 const App: React.FC = () => {
-  const [items, setItems] = useState<NewsItem[]>([]);
+  // Inizializziamo con i mock per non partire con l'app vuota, ma senza refresh automatico
+  const [items, setItems] = useState<NewsItem[]>(MOCK_INITIAL_NEWS);
   const [status, setStatus] = useState<AppState>(AppState.IDLE);
   const [activeTag, setActiveTag] = useState('TUTTE');
   const [searchQuery, setSearchQuery] = useState('');
@@ -18,6 +19,9 @@ const App: React.FC = () => {
   const [logHistory, setLogHistory] = useState<ErrorDetail[]>([]);
   const [selectedLog, setSelectedLog] = useState<ErrorDetail | null>(null);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
+
+  // Riferimento per annullare la chiamata fetch in corso
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const addLog = (message: string, type: string = 'INFO', payload: any = {}, stack?: string) => {
     const newLog: ErrorDetail = {
@@ -39,7 +43,6 @@ const App: React.FC = () => {
       const currentOrigin = window.location.origin;
       addLog(`Endpoint base rilevato: ${currentOrigin}`, "DEBUG");
 
-      // 1. Check Proxy
       addLog("Fase 1: Verifica intercettazione Middleware (/api/status)...", "DEBUG");
       try {
         const proxyStatus = await checkProxyConnectivity();
@@ -49,19 +52,16 @@ const App: React.FC = () => {
         throw e;
       }
 
-      // 2. Check n8n Reachability
       addLog("Fase 2: Test connettività diretta Browser -> n8n (Solo ping)...", "DEBUG");
       const direct = await testDirectConnectivity();
       addLog(direct ? "n8n Host raggiungibile dal browser." : "n8n Host non risponde al browser (atteso se CORS attivo).", direct ? "SUCCESS" : "WARNING");
 
-      // 3. Test Chiamata Reale
       addLog("Fase 3: Test flusso dati completo...", "DEBUG");
       const token = process.env.MCP_TOKEN;
       const { data } = await fetchNews({ tags: ["DIAGNOSTICA"] }, token);
       addLog(`Sincronizzazione completata: ${data.items?.length || 0} articoli ricevuti.`, "SUCCESS");
       
       addLog("DIAGNOSTICA COMPLETATA CON SUCCESSO.", "SUCCESS");
-
     } catch (err: any) {
       addLog(`DIAGNOSTICA FALLITA: ${err.message}`, "FATAL", { origin: window.location.origin }, err.stack);
     } finally {
@@ -69,35 +69,49 @@ const App: React.FC = () => {
     }
   };
 
+  const handleStopRefresh = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+      setIsRefreshing(false);
+      setStatus(AppState.IDLE);
+      addLog("Sincronizzazione interrotta dall'utente.", 'SYSTEM');
+    }
+  };
+
   const handleRefresh = useCallback(async () => {
-    if (isRefreshing) return;
+    if (isRefreshing) {
+      handleStopRefresh();
+      return;
+    }
+
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
     const mcpToken = process.env.MCP_TOKEN;
     addLog(`Richiesta aggiornamento inviata...`, 'NETWORK');
 
+    // Inizializza l'AbortController per questa sessione
+    abortControllerRef.current = new AbortController();
+
     try {
-      const { data } = await fetchNews({ tags: [] }, mcpToken);
+      const { data } = await fetchNews({ tags: [] }, mcpToken, abortControllerRef.current.signal);
       const newsItems = data.items || [];
       setItems(newsItems);
       setStatus(newsItems.length ? AppState.SUCCESS : AppState.EMPTY);
       addLog(`Aggiornamento riuscito: ${newsItems.length} news caricate.`, 'SUCCESS');
     } catch (error: any) {
-      addLog(`Aggiornamento fallito: ${error.message}`, 'ERROR');
-      // Caricamento dati locali per non lasciare l'utente a mani vuote
-      const fallback = await fetchMockNews();
-      setItems(fallback.items);
-      setStatus(AppState.SUCCESS);
-      addLog(`Caricati dati di emergenza locali.`, 'WARNING');
+      if (error.message.includes("interrotta")) {
+        // Log già gestito da handleStopRefresh
+      } else {
+        addLog(`Aggiornamento fallito: ${error.message}`, 'ERROR');
+        // Non sovrascriviamo con i mock se è un errore di rete per permettere di vedere l'errore nel terminale
+      }
     } finally {
       setIsRefreshing(false);
+      abortControllerRef.current = null;
     }
   }, [isRefreshing]);
-
-  useEffect(() => {
-    handleRefresh();
-  }, []);
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -126,19 +140,25 @@ const App: React.FC = () => {
                     <span className="text-xl font-black text-slate-900 leading-none mb-1">AI News Engine</span>
                     <div className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${status === AppState.SUCCESS ? 'text-emerald-500' : 'text-slate-400'}`}>
                       <span className={`w-2 h-2 rounded-full bg-current ${status === AppState.LOADING ? 'animate-ping' : ''}`}></span>
-                      {status === AppState.LOADING ? 'In sincronizzazione...' : 'Sincronizzato'}
+                      {status === AppState.LOADING ? 'In sincronizzazione...' : (status === AppState.SUCCESS ? 'Sincronizzato' : 'Pronto')}
                     </div>
                   </div>
                </div>
                
+               {/* Pulsante Dual-Action: Refresh / Stop */}
                <button 
                 onClick={handleRefresh} 
-                disabled={isRefreshing} 
-                className="w-16 h-16 bg-slate-900 text-white rounded-2xl flex items-center justify-center hover:bg-black transition-all shadow-xl active:scale-95 disabled:opacity-50"
+                className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-red-500 hover:bg-red-600' : 'bg-slate-900 hover:bg-black'} text-white`}
                >
-                 <svg className={`w-8 h-8 ${isRefreshing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                 </svg>
+                 {isRefreshing ? (
+                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+                   </svg>
+                 ) : (
+                   <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                   </svg>
+                 )}
                </button>
             </section>
 

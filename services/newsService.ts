@@ -30,11 +30,16 @@ export async function fetchNews(
   token?: string, 
   signal?: AbortSignal
 ): Promise<FetchNewsResult> {
-  // Il token viene inviato nel body, ma il proxy userà process.env.MCP_TOKEN se questo manca
+  // Usiamo il token passato come argomento o quello presente nel contesto di processo (iniettato da Vite)
+  const activeToken = token || process.env.MCP_TOKEN || '';
+
   const response = await fetch(MCP_ENDPOINT, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ params, token }),
+    headers: { 
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${activeToken}`
+    },
+    body: JSON.stringify({ params, token: activeToken }),
     signal: signal 
   });
 

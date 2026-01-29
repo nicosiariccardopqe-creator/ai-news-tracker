@@ -18,8 +18,7 @@ export async function checkProxyStatus(): Promise<any> {
 }
 
 export async function fetchNews(
-  params: { tags?: string[] } = {}, 
-  token?: string, 
+  params: { tags?: string[] } = {},
   signal?: AbortSignal
 ): Promise<FetchNewsResult> {
   const activeToken = token || process.env.MCP_TOKEN || '';
@@ -27,8 +26,7 @@ export async function fetchNews(
   const response = await fetch(MCP_ENDPOINT, {
     method: "POST",
     headers: { 
-      "Content-Type": "application/json",
-      "Authorization": `Bearer ${activeToken}`
+      "Content-Type": "application/json"
     },
     body: JSON.stringify({ params, token: activeToken }),
     signal: signal 

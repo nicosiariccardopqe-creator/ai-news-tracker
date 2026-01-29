@@ -45,24 +45,6 @@ app.get('*', (req, res) => {
   }
 });
 
-app.get("/api/diag/mcp", async (_req, res) => {
-  try {
-    const r = await fetch("https://docker-n8n-xngg.onrender.com/mcp-server/http", {
-      method: "OPTIONS",
-      signal: AbortSignal.timeout(15000),
-    });
-    res.json({ ok: true, status: r.status, headers: Object.fromEntries(r.headers) });
-  } catch (e) {
-    res.status(500).json({
-      ok: false,
-      name: e?.name,
-      message: e?.message,
-      cause: e?.cause ? String(e.cause) : undefined,
-      stack: e?.stack,
-    });
-  }
-});
-
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Server attivo sulla porta ${PORT}`);
   console.log(`📡 Proxy MCP configurato su /api/news`);

@@ -51,36 +51,37 @@ const App: React.FC = () => {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    // Passiamo il tag selezionato come parametro
     const params = { tags: activeTag === 'TUTTE' ? [] : [activeTag] };
 
+    // LOG DETTAGLIATO DEL PAYLOAD INIZIALE
     addLog(`Avvio sincronizzazione...`, 'NETWORK', { 
-      step: "1. Browser chiama Endpoint",
+      step: "1. Browser -> Endpoint",
       endpoint: MCP_ENDPOINT,
-      params: params,
-      strategy: "Proxy-Managed (MCP_TOKEN in sessione)"
+      payload: { params, token: "REDACTED (Using Server ENV)" },
+      info: "Il token MCP_TOKEN verrà iniettato dal Proxy Server-Side."
     });
 
     abortControllerRef.current = new AbortController();
 
     try {
-      // Nota: Non passiamo il token qui, lasciamo che il Proxy usi process.env.MCP_TOKEN
       const { data } = await fetchNews(params, undefined, abortControllerRef.current.signal);
       const newsItems = data.items || [];
       setItems(newsItems);
       setStatus(newsItems.length ? AppState.SUCCESS : AppState.EMPTY);
-      addLog(`Sincronizzazione completata tramite Proxy.`, 'SUCCESS', { 
-        step: "3. Proxy ha risposto con successo",
-        count: newsItems.length,
-        source: data.source_version 
+      
+      addLog(`Successo: Ricevuti ${newsItems.length} elementi.`, 'SUCCESS', { 
+        step: "3. Proxy -> n8n -> Browser",
+        items_count: newsItems.length,
+        version: data.source_version,
+        generated_at: data.generated_at
       });
     } catch (error: any) {
       if (error.name === 'AbortError') return;
       
-      addLog(`FALLIMENTO FLOW: ${error.message}`, 'ERROR', { 
-        error_info: error.message,
-        tip: "Verifica che il token sia correttamente impostato nelle variabili d'ambiente."
-      });
+      addLog(`ERRORE FLOW: ${error.message}`, 'ERROR', { 
+        error_details: error.message,
+        hint: "Verifica che MCP_TOKEN sia impostato correttamente nel server."
+      }, error.stack);
       setStatus(AppState.ERROR);
     } finally {
       setIsRefreshing(false);
@@ -91,29 +92,30 @@ const App: React.FC = () => {
   const handleRunDiagnostics = async () => {
     if (isDiagnosing) return;
     setIsDiagnosing(true);
-    addLog("AVVIO TEST STACK (3 STEP)...", "SYSTEM");
+    addLog("ESECUZIONE TEST STACK (3-STEP)...", "SYSTEM");
 
     try {
       // STEP 1: Browser -> Endpoint
-      addLog("STEP 1: Test Endpoint Locale...", "DEBUG");
+      addLog("STEP 1: Chiamata Endpoint Browser...", "DEBUG");
       const statusRes = await checkProxyStatus();
-      addLog("Endpoint Raggiungibile.", "SUCCESS", { url: "/api/status", response: statusRes });
+      addLog("Step 1 OK: Endpoint locale raggiungibile.", "SUCCESS", { endpoint: "/api/status", response: statusRes });
 
-      // STEP 2: Endpoint -> Proxy (Controllo Token)
-      addLog("STEP 2: Verifica Proxy & Token...", "DEBUG");
+      // STEP 2: Endpoint -> Proxy
+      addLog("STEP 2: Endpoint chiama il Proxy (Verifica Token)...", "DEBUG");
       if (statusRes.env_token_present) {
-        addLog(`Proxy pronto (Token presente in sessione).`, "SUCCESS", { mode: statusRes.mode });
+        addLog("Step 2 OK: Proxy configurato con MCP_TOKEN.", "SUCCESS", { token_present: true, mode: statusRes.mode });
       } else {
-        addLog(`ATTENZIONE: MCP_TOKEN non rilevato nel Proxy.`, "WARNING");
+        addLog("Step 2 FAILED: MCP_TOKEN mancante nel Proxy.", "ERROR");
+        throw new Error("Token mancante nel server/middleware.");
       }
 
       // STEP 3: Proxy -> n8n
-      addLog("STEP 3: Test Chiamata Completa (Proxy -> n8n)...", "DEBUG");
+      addLog("STEP 3: Il Proxy chiama n8n...", "DEBUG");
       const diagParams = { tags: ["DIAG"] };
       const { data } = await fetchNews(diagParams);
-      addLog("Stack completo verificato con successo!", "SUCCESS", { 
-        news_count: data.items?.length || 0,
-        n8n_response_time: data.generated_at 
+      addLog("Step 3 OK: Risposta valida da n8n!", "SUCCESS", { 
+        data_count: data.items?.length || 0,
+        n8n_timestamp: data.generated_at 
       });
 
     } catch (err: any) {
@@ -218,7 +220,7 @@ const App: React.FC = () => {
                 </button>
               </div>
               <div className="p-6 h-[350px] overflow-y-auto font-mono text-[11px] leading-relaxed no-scrollbar bg-black/40">
-                {logHistory.length === 0 && <div className="text-zinc-700 italic">Clicca "RUN 3-STEP TEST" per verificare il flusso: Browser → Endpoint → Proxy → n8n</div>}
+                {logHistory.length === 0 && <div className="text-zinc-700 italic px-4 py-2">Clicca "RUN 3-STEP TEST" per verificare il flusso: Browser → Endpoint → Proxy → n8n</div>}
                 {logHistory.map((log, i) => (
                   <div key={i} onClick={() => { setSelectedLog(log); setIsDebugOpen(true); }} className="flex items-center gap-4 py-2.5 hover:bg-white/5 cursor-pointer px-4 rounded-xl transition-all border-b border-white/5 last:border-0">
                     <span className="text-zinc-600 shrink-0">[{log.timestamp}]</span>

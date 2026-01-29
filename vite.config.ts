@@ -8,7 +8,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /**
  * Middleware robusto per AI Studio.
- * Intercetta le chiamate /api/ anche se l'URL viene manipolato dai proxy esterni.
+ * Intercetta le chiamate /api/ e inoltra a n8n con il token di sessione.
  */
 const mcpProxyPlugin = (env: Record<string, string>) => ({
   name: 'mcp-proxy-server',
@@ -16,55 +16,53 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
     server.middlewares.use(async (req: any, res: any, next: any) => {
       const url = req.url || '';
       
-      // Log per debug nel terminale di Vite
-      if (url.includes('/api/')) {
-        console.log(`[Vite Middleware] Richiesta rilevata: ${req.method} ${url}`);
-      }
-
-      // Gestione flessibile di /api/status
+      // STEP 1: Browser chiama Endpoint
       if (url.includes('/api/status')) {
         res.statusCode = 200;
         res.setHeader('Content-Type', 'application/json');
-        res.setHeader('Cache-Control', 'no-store');
         res.end(JSON.stringify({
           status: "online",
-          mode: "vite-middleware-robust",
+          mode: "vite-middleware-3step",
           env_token_present: !!env.MCP_TOKEN,
-          timestamp: new Date().toISOString(),
-          requested_path: url
+          timestamp: new Date().toISOString()
         }));
         return;
       }
 
-      // Gestione flessibile di /api/news
+      // STEP 2 & 3: Endpoint chiama Proxy -> Proxy chiama n8n
       if (url.includes('/api/news') && req.method === 'POST') {
         let body = '';
         req.on('data', (chunk: any) => { body += chunk; });
         req.on('end', async () => {
           try {
             const data = JSON.parse(body || '{}');
-            const finalToken = data.token || env.MCP_TOKEN;
+            // Priorità al token in env se disponibile, per sicurezza
+            const finalToken = env.MCP_TOKEN || data.token;
             const params = data.params || {};
 
             if (!finalToken) {
               res.statusCode = 401;
               res.setHeader('Content-Type', 'application/json');
-              res.end(JSON.stringify({ error: "MCP_TOKEN mancante nel file .env o nel payload" }));
+              res.end(JSON.stringify({ error: "MCP_TOKEN non configurato nel server" }));
               return;
             }
 
             const mcpTarget = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
+            
+            // LOGICA DI INIEZIONE TOKEN RICHIESTA
+            const n8nPayload = {
+              method: "NewsAI",
+              token: finalToken,
+              params: params
+            };
+
             const response = await fetch(mcpTarget, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/json',
                 'Authorization': `Bearer ${finalToken}`
               },
-              body: JSON.stringify({
-                method: "NewsAI",
-                token: finalToken,
-                params: params
-              })
+              body: JSON.stringify(n8nPayload)
             });
 
             const result = await response.text();
@@ -72,10 +70,9 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
             res.setHeader('Content-Type', 'application/json');
             res.end(result);
           } catch (err: any) {
-            console.error("[Middleware Error]", err.message);
             res.statusCode = 502;
             res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: "Errore durante l'inoltro a n8n", details: err.message }));
+            res.end(JSON.stringify({ error: "Proxy Exception", details: err.message }));
           }
         });
         return;

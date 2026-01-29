@@ -77,10 +77,10 @@ const App: React.FC = () => {
       });
     } catch (error: any) {
       if (error.name === 'AbortError') return;
-      
+     
       addLog(`ERRORE FLOW: ${error.message}`, 'ERROR', { 
         error_details: error.message,
-        hint: "Verifica che MCP_TOKEN sia impostato correttamente nel server."
+        hint: "Verifica che MCP_TOKEN sia impostato correttamente nel server. Parametri: " + params
       }, error.stack);
       setStatus(AppState.ERROR);
     } finally {

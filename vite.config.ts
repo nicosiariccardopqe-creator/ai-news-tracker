@@ -50,15 +50,25 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
               params: params
             };
 
-            const headers = {
+            // Mascheramento per i log: 20 caratteri .. 5 caratteri
+            const maskedToken = finalToken.length > 25 
+              ? `${finalToken.substring(0, 20)}..${finalToken.slice(-5)}` 
+              : finalToken;
+
+            const headersLog = {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${finalToken.substring(0, 6)}...`
+              'Authorization': `Bearer ${maskedToken}`
+            };
+
+            const maskedPayload = {
+              ...n8nPayload,
+              token: maskedToken
             };
 
             proxyTrace.push(`[PROXY] === PREPARAZIONE CHIAMATA N8N ===`);
             proxyTrace.push(`[PROXY] Target: ${mcpTarget}`);
-            proxyTrace.push(`[PROXY] Headers: ${JSON.stringify(headers)}`);
-            proxyTrace.push(`[PROXY] Payload Inviato: ${JSON.stringify(n8nPayload)}`);
+            proxyTrace.push(`[PROXY] Headers: ${JSON.stringify(headersLog)}`);
+            proxyTrace.push(`[PROXY] Payload Inviato: ${JSON.stringify(maskedPayload)}`);
             proxyTrace.push(`[PROXY] =================================`);
 
             const n8nResponse = await fetch(mcpTarget, {

@@ -70,15 +70,25 @@ router.post("/news", async (req, res) => {
       params: params || {},
     };
 
+    // Mascheramento per i log: 20 caratteri .. 5 caratteri
+    const maskedToken = finalToken.length > 25 
+      ? `${finalToken.substring(0, 20)}..${finalToken.slice(-5)}` 
+      : finalToken;
+
     const headersLog = {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${finalToken.substring(0, 6)}...`
+      "Authorization": `Bearer ${maskedToken}`
+    };
+
+    const maskedPayload = {
+      ...n8nPayload,
+      token: maskedToken
     };
 
     addTrace(`=== PREPARAZIONE CHIAMATA N8N ===`);
     addTrace(`-> Metodo: NewsAI`);
     addTrace(`-> Headers: ${JSON.stringify(headersLog)}`);
-    addTrace(`-> Full Payload: ${JSON.stringify(n8nPayload)}`);
+    addTrace(`-> Full Payload (Masked): ${JSON.stringify(maskedPayload)}`);
     addTrace(`-> Target: ${MCP_TARGET}`);
     addTrace(`=================================`);
 
@@ -88,7 +98,9 @@ router.post("/news", async (req, res) => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${finalToken}`,
+          "Accept": "application/json, text/event-stream",
+          "MCP-Protocol-Version": "2025-06-18",
+          "Authorization": `Bearer ${finalToken}`
         },
         body: JSON.stringify(n8nPayload),
       },

@@ -31,8 +31,7 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
           try {
             const data = JSON.parse(body || '{}');
             const finalToken = env.MCP_TOKEN || data.token;
-            const params = data.params || {};
-
+            
             proxyTrace.push(`[PROXY] Richiesta ricevuta dal browser.`);
             
             if (!finalToken) {
@@ -44,13 +43,21 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
             }
 
             const mcpTarget = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
+            
+            // Nuovo formato payload richiesto
             const n8nPayload = {
-              method: "NewsAI",
-              token: finalToken,
-              params: params
+              name: "execute_workflow",
+              token: finalToken, // Inviato per compatibilità e visibilità
+              arguments: {
+                workflowId: "rvpkrwvBbd5NWLMt",
+                inputs: {
+                  type: "chat",
+                  chatInput: "Dammi le news su tecnologia e AI"
+                }
+              }
             };
 
-            // Mascheramento per i log: 20 caratteri .. 5 caratteri
+            // Mascheramento per i log: primi 20 caratteri .. ultimi 5
             const maskedToken = finalToken.length > 25 
               ? `${finalToken.substring(0, 20)}..${finalToken.slice(-5)}` 
               : finalToken;
@@ -67,8 +74,9 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
 
             proxyTrace.push(`[PROXY] === PREPARAZIONE CHIAMATA N8N ===`);
             proxyTrace.push(`[PROXY] Target: ${mcpTarget}`);
+            proxyTrace.push(`[PROXY] Tool (Name): ${n8nPayload.name}`);
             proxyTrace.push(`[PROXY] Headers: ${JSON.stringify(headersLog)}`);
-            proxyTrace.push(`[PROXY] Payload Inviato: ${JSON.stringify(maskedPayload)}`);
+            proxyTrace.push(`[PROXY] Full Payload (Masked Token): ${JSON.stringify(maskedPayload)}`);
             proxyTrace.push(`[PROXY] =================================`);
 
             const n8nResponse = await fetch(mcpTarget, {

@@ -64,13 +64,20 @@ router.post("/news", async (req, res) => {
   }
 
   try {
+    // Nuovo formato payload richiesto
     const n8nPayload = {
-      method: "NewsAI",
+      name: "execute_workflow",
       token: finalToken,
-      params: params || {},
+      arguments: {
+        workflowId: "rvpkrwvBbd5NWLMt",
+        inputs: {
+          type: "chat",
+          chatInput: "Dammi le news su tecnologia e AI"
+        }
+      }
     };
 
-    // Mascheramento per i log: 20 caratteri .. 5 caratteri
+    // Mascheramento per i log: primi 20 caratteri .. ultimi 5
     const maskedToken = finalToken.length > 25 
       ? `${finalToken.substring(0, 20)}..${finalToken.slice(-5)}` 
       : finalToken;
@@ -86,7 +93,7 @@ router.post("/news", async (req, res) => {
     };
 
     addTrace(`=== PREPARAZIONE CHIAMATA N8N ===`);
-    addTrace(`-> Metodo: NewsAI`);
+    addTrace(`-> Tool (Name): ${n8nPayload.name}`);
     addTrace(`-> Headers: ${JSON.stringify(headersLog)}`);
     addTrace(`-> Full Payload (Masked): ${JSON.stringify(maskedPayload)}`);
     addTrace(`-> Target: ${MCP_TARGET}`);

@@ -18,6 +18,7 @@ const App: React.FC = () => {
   const [logHistory, setLogHistory] = useState<ErrorDetail[]>([]);
   const [selectedLog, setSelectedLog] = useState<ErrorDetail | null>(null);
   const [isDebugOpen, setIsDebugOpen] = useState(false);
+  const [isLogCollapsed, setIsLogCollapsed] = useState(false);
 
   const abortControllerRef = useRef<AbortController | null>(null);
 
@@ -28,8 +29,10 @@ const App: React.FC = () => {
       type: type.toUpperCase(),
       payload
     };
-    setLogHistory(prev => [newLog, ...prev].slice(0, 50)); 
+    setLogHistory(prev => [newLog, ...prev].slice(0, 100)); 
   };
+
+  const clearLogs = () => setLogHistory([]);
 
   const handleLoadDefault = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -55,8 +58,11 @@ const App: React.FC = () => {
     setStatus(AppState.LOADING);
     
     const currentParams = { tags: activeTag === 'TUTTE' ? [] : [activeTag] };
-    addLog(`Browser -> Invocazione tool: NewsAI`, "NETWORK", currentParams);
-    addLog(`Inoltro richiesta a Node Server...`, "NETWORK");
+    addLog(`INVIO RICHIESTA JSON-RPC 2.0 (Tool: execute_workflow)`, "NETWORK", {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: { name: "execute_workflow", workflowId: "rvpkrwvBbd5NWLMt" }
+    });
 
     abortControllerRef.current = new AbortController();
 
@@ -67,24 +73,31 @@ const App: React.FC = () => {
         abortControllerRef.current.signal
       );
       
+      // Logghiamo i trace del server (inclusi quelli del proxy con token mascherato 20..5)
       if (result.serverTrace) {
         result.serverTrace.forEach(msg => addLog(msg, "DEBUG"));
       }
+
+      // Tracciamo la risposta effettiva ricevuta dal server
+      addLog(`RISPOSTA SERVER RICEVUTA`, "SUCCESS", result.data);
 
       const newsItems = result.data.items || [];
       setItems(newsItems);
       setStatus(newsItems.length ? AppState.SUCCESS : AppState.EMPTY);
       setLastSyncTime(new Date().toLocaleString('it-IT'));
-      addLog(`Ricevute ${newsItems.length} notizie dal server`, "SUCCESS");
+      addLog(`Pipeline completata: ${newsItems.length} notizie elaborate.`, "SUCCESS");
 
     } catch (error: any) {
-      if (error.name === 'AbortError') return;
+      if (error.name === 'AbortError') {
+        addLog("Richiesta annullata dall'utente.", "SYSTEM");
+        return;
+      }
       
       if (error.serverTrace) {
         error.serverTrace.forEach((msg: string) => addLog(msg, "ERROR"));
       }
 
-      addLog(`FALLIMENTO: ${error.message || 'Errore di connessione'}`, "ERROR", error);
+      addLog(`ERRORE PIPELINE: ${error.message || 'Errore di connessione'}`, "ERROR", error.payload || error);
       setStatus(AppState.ERROR);
     } finally {
       setIsRefreshing(false);
@@ -145,7 +158,7 @@ const App: React.FC = () => {
                   type="button"
                   onClick={handleRefresh} 
                   className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-red-500' : 'bg-slate-900'} text-white group`}
-                  title={isRefreshing ? "Annulla" : "Sincronizza con n8n (Tool: NewsAI)"}
+                  title={isRefreshing ? "Annulla" : "Sincronizza con n8n (JSON-RPC)"}
                  >
                    {isRefreshing ? (
                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -191,30 +204,14 @@ const App: React.FC = () => {
                 </div>
               )}
             </div>
-
-            <section className="bg-[#050505] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12">
-              <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex items-center gap-4">
-                <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Full-Stack Data Pipeline (Tool: NewsAI)</span>
-              </div>
-              <div className="p-6 h-[250px] overflow-y-auto font-mono text-[11px] no-scrollbar bg-black/40">
-                {logHistory.length === 0 && <p className="text-zinc-700 italic">In attesa di attività...</p>}
-                {logHistory.map((log, i) => (
-                  <div key={i} onClick={() => { setSelectedLog(log); setIsDebugOpen(true); }} className="flex items-center gap-4 py-2 hover:bg-white/5 cursor-pointer px-4 rounded-lg transition-colors border-b border-white/5 last:border-0">
-                    <span className="text-zinc-600 shrink-0">[{log.timestamp}]</span>
-                    <span className={`font-black text-[8px] px-1.5 py-0.5 rounded border ${log.type === 'ERROR' ? 'text-red-500 border-red-500/30 bg-red-500/5' : log.type === 'SUCCESS' ? 'text-emerald-500 border-emerald-500/30' : log.type === 'SYSTEM' ? 'text-blue-400 border-blue-400/30' : 'text-zinc-500 border-zinc-500/30'}`}>
-                      {log.type}
-                    </span>
-                    <span className="text-zinc-300 truncate">{log.message}</span>
-                  </div>
-                ))}
-              </div>
-            </section>
           </div>
 
           <aside className="w-full lg:w-[400px]">
             <div className="bg-[#0a0a0a] rounded-[2.5rem] p-10 text-white min-h-[600px] sticky top-8 border border-white/5 shadow-2xl">
-              <h2 className="text-3xl font-black tracking-tighter mb-10">Trending Now</h2>
+              <div className="flex items-center justify-between mb-10">
+                <h2 className="text-3xl font-black tracking-tighter">Trending Now</h2>
+                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
+              </div>
               <div className="space-y-6">
                 {items.slice(0, 8).map((item, i) => (
                   <div key={item.id} className="group flex gap-5 items-center border-b border-white/5 pb-4 last:border-0 cursor-pointer">
@@ -226,6 +223,74 @@ const App: React.FC = () => {
             </div>
           </aside>
         </div>
+
+        {/* Console di Debug a Larghezza Intera */}
+        <section className="bg-[#050505] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12 transition-all duration-500">
+          <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className={`w-2 h-2 rounded-full ${isRefreshing ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
+              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Full-Stack Data Pipeline & Server Tracking</span>
+            </div>
+            <div className="flex items-center gap-4">
+               <button 
+                onClick={clearLogs}
+                className="text-[9px] font-black text-zinc-500 hover:text-white uppercase tracking-widest transition-colors"
+               >
+                 Clear
+               </button>
+               <button 
+                onClick={() => setIsLogCollapsed(!isLogCollapsed)}
+                className="p-2 text-zinc-500 hover:text-white transition-colors"
+                title={isLogCollapsed ? "Espandi" : "Collassa"}
+               >
+                {isLogCollapsed ? (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M19 9l-7 7-7-7" />
+                  </svg>
+                ) : (
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 15l7-7 7 7" />
+                  </svg>
+                )}
+               </button>
+            </div>
+          </div>
+          
+          {!isLogCollapsed && (
+            <div className="p-6 h-[350px] overflow-y-auto font-mono text-[11px] no-scrollbar bg-black/40 animate-fade-in">
+              {logHistory.length === 0 && (
+                <div className="h-full flex flex-col items-center justify-center text-zinc-800 space-y-2">
+                  <svg className="w-8 h-8 opacity-20" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                  </svg>
+                  <p className="italic font-bold tracking-widest uppercase text-[9px]">Pipeline in standby...</p>
+                </div>
+              )}
+              {logHistory.map((log, i) => (
+                <div 
+                  key={i} 
+                  onClick={() => { setSelectedLog(log); setIsDebugOpen(true); }} 
+                  className="flex items-center gap-4 py-2.5 hover:bg-white/5 cursor-pointer px-4 rounded-lg transition-colors border-b border-white/5 last:border-0 group"
+                >
+                  <span className="text-zinc-600 shrink-0 tabular-nums">[{log.timestamp}]</span>
+                  <span className={`font-black text-[8px] px-2 py-0.5 rounded border transition-all ${
+                    log.type === 'ERROR' ? 'text-red-500 border-red-500/30 bg-red-500/5' : 
+                    log.type === 'SUCCESS' ? 'text-emerald-500 border-emerald-500/30 bg-emerald-500/5' : 
+                    log.type === 'SYSTEM' ? 'text-blue-400 border-blue-400/30 bg-blue-400/5' : 
+                    log.type === 'NETWORK' ? 'text-amber-400 border-amber-400/30 bg-amber-400/5' :
+                    'text-zinc-500 border-zinc-500/30'
+                  }`}>
+                    {log.type}
+                  </span>
+                  <span className="text-zinc-300 truncate group-hover:text-white">{log.message}</span>
+                  <div className="ml-auto opacity-0 group-hover:opacity-100 transition-opacity">
+                    <span className="text-[9px] font-bold text-zinc-600 uppercase tracking-tighter">Click to inspect</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </section>
       </main>
 
       <DebugModal isOpen={isDebugOpen} onClose={() => setIsDebugOpen(false)} error={selectedLog} />

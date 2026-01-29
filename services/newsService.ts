@@ -11,12 +11,14 @@ export const MCP_ENDPOINT = 'https://docker-n8n-xngg.onrender.com/mcp-server/htt
  */
 export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsResponse> {
   try {
+    const token = process.env.MCP_TOKEN || 'MISSING_TOKEN';
     
-    const token = process.env.MCP_TOKEN; // mettilo su Render/hosting come variabile ambiente
-    if (!token) { throw new Error("MCP_TOKEN mancante nelle variabili d'ambiente")} else {console.log('[Token presente]', token)};
+    // Log di controllo interno
+    if (token === 'MISSING_TOKEN') {
+      console.warn('[NewsService] Attenzione: MCP_TOKEN non configurato.');
+    }
 
     // Chiamata all'endpoint MCP assoluto
-    // Aumentiamo il timeout a 60 secondi perché Render (free tier) può impiegare molto tempo per lo spin-up (cold start)
     const response = await fetch(MCP_ENDPOINT, {
       method: 'POST',
       headers: { 
@@ -24,10 +26,11 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
         'Authorization': `Bearer ${token}`
       },
       body: JSON.stringify({
-        method: "NewsAI", // Tool corretto come richiesto
+        method: "NewsAI",
+        token: token, // Incluso nel payload come richiesto
         params: params
       }),
-      signal: AbortSignal.timeout(60000) 
+      signal: AbortSignal.timeout(60000) // 60s per gestire il cold start di Render
     });
 
     if (!response.ok) {
@@ -39,14 +42,12 @@ export async function fetchNews(params: { tags?: string[] } = {}): Promise<NewsR
   } catch (error: any) {
     let errorMessage = error.message;
 
-    // Gestione specifica degli errori comuni in ambiente browser
     if (error.name === 'TimeoutError' || error.name === 'AbortError') {
       errorMessage = "Timeout (60s). Il server Render potrebbe essere in fase di avvio o sovraccarico.";
     } else if (errorMessage === 'Failed to fetch') {
-      errorMessage = "Failed to fetch: Probabile errore CORS o server non raggiungibile. Assicurati che il server MCP accetti richieste da questa origine.";
+      errorMessage = "Failed to fetch: Errore CORS o rete. Verifica se il server MCP è attivo e accetta l'origine.";
     }
 
-    // Rilancio dell'errore con contesto per il sistema di log UI
     const stackError = new Error(`Errore connessione MCP [${MCP_ENDPOINT}]: ${errorMessage}`);
     (stackError as any).isProviderError = true;
     (stackError as any).originalStack = error.stack;

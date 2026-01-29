@@ -14,7 +14,6 @@ export default defineConfig(({ mode }) => {
       port: 3000,
       host: '0.0.0.0',
       allowedHosts: true,
-      // Proxy rimosso come richiesto
     },
     preview: {
       port: 3000,
@@ -25,6 +24,8 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      // Esposizione del token MCP per l'utilizzo nel newsService
+      'process.env.MCP_TOKEN': JSON.stringify(env.MCP_TOKEN),
     },
     resolve: {
       alias: {

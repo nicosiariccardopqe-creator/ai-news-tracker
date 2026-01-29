@@ -48,19 +48,23 @@ const App: React.FC = () => {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    // Configurazione dati per log - Tool aggiornato a NewsAI
+    // Recupero del token per il log
+    const mcpToken = process.env.MCP_TOKEN || 'NON_CONFIGURATO';
     const requestParams = { tags: [] }; 
     const activeTools = ['NewsAI'];
+    
+    // Payload completo che include il token per visibilità nel terminale
     const fullPayload = {
       method: "NewsAI",
+      token: mcpToken,
       params: requestParams
     };
     
     const payloadStr = JSON.stringify(fullPayload);
     const toolsStr = activeTools.join(', ');
     
-    // Log completo: URL, Tools e Payload come richiesto
-    addLog(`POST ${MCP_ENDPOINT} | TOOLS: [${toolsStr}] | PAYLOAD: ${payloadStr}`, 'NETWORK', { 
+    // Log dettagliato nel terminale UI
+    addLog(`POST ${MCP_ENDPOINT} | PAYLOAD: ${payloadStr}`, 'NETWORK', { 
       fullUrl: MCP_ENDPOINT, 
       tools: activeTools, 
       payload: fullPayload 
@@ -70,7 +74,7 @@ const App: React.FC = () => {
       const response = await fetchNews(requestParams);
       setItems(response.items);
       setStatus(AppState.SUCCESS);
-      addLog(`SUCCESS [200]: Sync completato con ${MCP_ENDPOINT}. Ricevuti ${response.items.length} articoli tramite ${toolsStr}.`, 'SUCCESS');
+      addLog(`SUCCESS [200]: News ricevute correttamente tramite ${toolsStr}.`, 'SUCCESS');
     } catch (error: any) {
       console.error("MCP Sync Error:", error);
       addLog(
@@ -80,7 +84,7 @@ const App: React.FC = () => {
         error.stack || error.originalStack
       );
 
-      addLog("Avvio procedura di fallback su motore locale...", 'SYSTEM');
+      addLog("Avvio procedura di fallback locale...", 'SYSTEM');
       await loadFallback(requestParams);
     } finally {
       setIsRefreshing(false);

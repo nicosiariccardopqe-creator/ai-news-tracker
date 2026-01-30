@@ -4,6 +4,10 @@ import { Router } from "express";
 const router = Router();
 const MCP_TARGET = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
 
+export const config = {
+  runtime: "nodejs"
+};
+
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 function toBase64(obj: any) {

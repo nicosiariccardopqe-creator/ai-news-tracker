@@ -4,10 +4,6 @@ import { NewsItem, NewsResponse } from '../types';
 export const MCP_ENDPOINT = '/api/news';
 export const STATUS_ENDPOINT = '/api/status';
 
-export const config = {
-  runtime: "nodejs"
-};
-
 // Helper per ottenere gli header corretti di Supabase
 const getSupabaseHeaders = () => ({
   'Content-Type': 'application/json',

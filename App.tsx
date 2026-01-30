@@ -65,80 +65,91 @@ const App: React.FC = () => {
     abortControllerRef.current = new AbortController();
 
     try {
-      const result = await fetchNews(
+  let dataArray: any[] | null = null;
+  const result = await fetchNews(
         { tags: activeTag === 'TUTTE' ? [] : [activeTag] },
         undefined,
         abortControllerRef.current.signal
       );
-      
-      const responseData: any = result.data;
-      addLog(`RISPOSTA RICEVUTA (Grezza)`, "NETWORK", responseData);
+const responseData: any = result.data;
+  //
+  // 1. Percorso principale corretto basato sulla tua struttura reale n8n
+  //
+  const sc = responseData?.result?.structuredContent?.result;
+  const combineNode = sc?.runData?.["Combine All Posts"];
 
-      let rawItems: any[] = [];
+  if (Array.isArray(combineNode) && combineNode.length > 0) {
+    const mainData = combineNode[0]?.data?.main;
 
-      // ESTRAZIONE ROBUSTA BASATA SUL LOG FORNITO
-      try {
-        // 1. Cerchiamo la stringa JSON dentro content[0].text
-        const contentPart = responseData?.result?.content?.find((c: any) => c.type === 'text');
-        const innerJsonString = contentPart?.text;
+    if (
+      Array.isArray(mainData) &&
+      Array.isArray(mainData[0]) &&
+      mainData[0][0]?.json?.data
+    ) {
+      dataArray = mainData[0][0].json.data;
+      addLog(`Estratte ${dataArray.length} notizie dal percorso structuredContent`, "SUCCESS");
+    }
+  }
 
-        if (innerJsonString) {
-          const parsedInner = JSON.parse(innerJsonString);
-          
-          // 2. Percorriamo l'albero: result -> runData -> Combine All Posts
-          const runData = parsedInner?.result?.runData;
-          const combineNode = runData?.['Combine All Posts'];
-          
-          if (combineNode && combineNode.length > 0) {
-            // 3. data -> main -> [0] -> [0] -> json -> data
-            const mainData = combineNode[0]?.data?.main;
-            if (mainData && mainData[0] && mainData[0][0]) {
-              const dataArray = mainData[0][0].json?.data;
-              if (Array.isArray(dataArray)) {
-                rawItems = dataArray;
-                addLog(`Estratte ${rawItems.length} notizie dal percorso specifico n8n`, "SUCCESS");
-              }
-            }
-          }
-        } else {
-          // Fallback se la struttura è leggermente diversa (es. structuredContent come indicato dall'utente)
-          const dataArray = responseData?.result?.structuredContent?.result?.runData?.['Combine All Posts']?.[0]?.data?.main?.[0]?.[0]?.json?.data;
-          if (Array.isArray(dataArray)) {
-            rawItems = dataArray;
-          }
-        }
-      } catch (parseError) {
-        addLog("Errore durante il parsing dei dati annidati", "ERROR", parseError);
+  //
+  // 2. Fallback: caso in cui la risposta arrivi come text JSON annidato
+  //
+  if (!dataArray) {
+    const contentPart = responseData?.result?.content?.find((c: any) => c.type === "text");
+    const rawJson = contentPart?.text;
+
+    if (rawJson) {
+      const parsed = JSON.parse(rawJson);
+      const fallbackNode =
+        parsed?.result?.runData?.["Combine All Posts"]?.[0]?.data?.main?.[0]?.[0]?.json?.data;
+
+      if (Array.isArray(fallbackNode)) {
+        dataArray = fallbackNode;
+        addLog(`Estratte ${dataArray.length} notizie dal fallback JSON text`, "SUCCESS");
       }
+    }
+  }
 
-      // MAPPING DEI CAMPI RICHIESTO:
-      // 1. title -> title
-      // 2. link -> url
-      // 3. contentSnippet -> summary
-      // 4. puibbDate -> published_at
-      // 5. categories -> tags
-      const mappedItems: NewsItem[] = rawItems.map((raw: any, index: number) => ({
-        id: raw.id || `n8n-${Date.now()}-${index}`,
-        title: raw.title || "Senza Titolo",
-        url: raw.link || "#",
-        summary: raw.contentSnippet || raw.summary || "Nessun sommario disponibile.",
-        published_at: raw.puibbDate || raw.pubDate || new Date().toISOString(),
-        tags: Array.isArray(raw.categories) ? raw.categories : (raw.tags || ["AI"]),
-        source: { 
-          name: (raw.source && typeof raw.source === 'string' ? raw.source : (raw.source?.name || 'N8N FEED')), 
-          domain: (raw.source?.domain || 'n8n.io') 
-        },
-        fetched_at: new Date().toISOString(),
-        language: 'it',
-        score: { freshness: 1, relevance: 1, popularity: 1 }
-      }));
+  //
+  // Se ancora vuoto → nessun risultato
+  //
+  if (!dataArray) {
+    addLog("Nessun dato trovato nei percorsi previsti.", "WARNING");
+    dataArray = [];
+  }
 
-      setItems(mappedItems);
+  //
+  // 3. Mapping campi richiesto
+  //
+  const mappedItems: NewsItem[] = dataArray.map((raw: any, index: number) => ({
+    id: raw.id || `n8n-${Date.now()}-${index}`,
+    title: raw.title || "Senza Titolo",
+    url: raw.link || "#",
+    summary: raw.contentSnippet || raw.summary || "Nessun sommario disponibile.",
+    published_at: raw.puibbDate || raw.pubDate || new Date().toISOString(),
+    tags: Array.isArray(raw.categories)
+      ? raw.categories
+      : raw.tags || ["AI"],
+
+    source: {
+      name:
+        typeof raw.source === "string"
+          ? raw.source
+          : raw.source?.name || "N8N FEED",
+      domain: raw.source?.domain || "n8n.io",
+    },
+
+    fetched_at: new Date().toISOString(),
+    language: "it",
+    score: { freshness: 1, relevance: 1, popularity: 1 },
+  }));
+
+  setItems(mappedItems);
       setStatus(mappedItems.length ? AppState.SUCCESS : AppState.EMPTY);
       setLastSyncTime(new Date().toLocaleString('it-IT'));
       addLog(`Mapping completato: ${mappedItems.length} notizie visualizzate.`, "SUCCESS");
 
-    } catch (error: any) {
+} catch (error: any) {
       if (error.name === 'AbortError') {
         addLog("Richiesta annullata.", "SYSTEM");
         return;

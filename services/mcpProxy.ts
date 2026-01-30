@@ -72,7 +72,7 @@ router.post("/news", async (req, res) => {
       params: {
         name: "execute_workflow",
         arguments: {
-          workflowId: "rvpkrwvBbd5NWLMt",
+          workflowId: "N2fwozq7gNrlovj6",
           inputs: {
             type: "chat",
             chatInput: "Dammi le news su tecnologia e AI"

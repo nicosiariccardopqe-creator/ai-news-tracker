@@ -46,6 +46,86 @@ const App: React.FC = () => {
     addLog("Caricati dati di default (Locale)", "SYSTEM");
   };
 
+  /**
+ * Estrae e mappa gli articoli a partire da una stringa SSE contenuta in rawResponse.
+ * Ritorna [] se non trova nulla.
+ */
+function parseNewsFromRawResponse(rawResponse: string) {
+  // 1) Prendi tutte le righe che iniziano con "data:" (gestisce anche più righe data:)
+  const dataLines = rawResponse
+    .split("\n")
+    .filter(l => l.startsWith("data:"))
+    .map(l => l.slice(5).trim()); // rimuove "data: "
+
+  if (dataLines.length === 0) {
+    console.warn("Nessuna riga 'data:' trovata nello SSE.");
+    return [];
+  }
+
+  // Se ci sono più eventi separati da righe vuote, potresti voler gestire blocchi.
+  // Per semplicità, qui uniamo le righe data: del primo evento.
+  // (Se ti servono *tutti* gli eventi, dimmelo e adatto il codice.)
+  const dataStr = dataLines.join("\n");
+
+  let evt: any;
+  try {
+    evt = JSON.parse(dataStr); // JSON dell'evento SSE
+  } catch (e) {
+    console.error("Impossibile fare JSON.parse() del blocco data:", e);
+    return [];
+  }
+
+  // 2) Tentativo A: percorso structuredContent (il tuo percorso “corretto”)
+  let articles =
+    evt?.result?.structuredContent?.result?.runData?.["Combine All Posts"]?.[0]
+      ?.data?.main?.[0]?.[0]?.json?.data;
+
+  // 3) Tentativo B (fallback): JSON annidato in content[].text (stringa)
+  if (!Array.isArray(articles)) {
+    try {
+      const textPart = evt?.result?.content?.find(
+        (c: any) => c?.type === "text" && typeof c?.text === "string"
+      );
+      if (textPart?.text) {
+        const inner = JSON.parse(textPart.text); // <-- secondo parse
+        articles =
+          inner?.result?.runData?.["Combine All Posts"]?.[0]
+            ?.data?.main?.[0]?.[0]?.json?.data;
+      }
+    } catch {
+      // ignoriamo se non è presente
+    }
+  }
+
+  if (!Array.isArray(articles)) {
+    console.warn("Nessun array di articoli trovato nei percorsi previsti.");
+    return [];
+  }
+
+  // 4) Mapping
+  const nowIso = new Date().toISOString();
+  const mapped = articles.map((raw: any, index: number) => ({
+    id: raw?.id || `n8n-${Date.now()}-${index}`,
+    title: raw?.title || "Senza Titolo",
+    url: raw?.link || "#",
+    summary: raw?.contentSnippet || raw?.summary || "Nessun sommario disponibile.",
+    published_at: raw?.puibbDate || raw?.pubDate || nowIso,
+    tags: Array.isArray(raw?.categories) ? raw.categories : (raw?.tags || ["AI"]),
+    source: {
+      name:
+        typeof raw?.source === "string"
+          ? raw.source
+          : raw?.source?.name || "N8N FEED",
+      domain: raw?.source?.domain || "n8n.io",
+    },
+    fetched_at: nowIso,
+    language: "it",
+    score: { freshness: 1, relevance: 1, popularity: 1 },
+  }));
+
+  return mapped;
+}
+
   const handleRefresh = useCallback(async (e?: React.MouseEvent) => {
     if (e) {
       e.preventDefault();
@@ -80,7 +160,10 @@ const App: React.FC = () => {
 
       addLog(`Mapping da effettuare per: ${JSON.stringify(result.data, null, 2)}`, "SUCCESS");
       addLog(`Mapping da effettuare per rawResponse: ${JSON.stringify(result.data?.rawResponse, null, 2)}`, "SUCCESS");
-      addLog(`Mapping da effettuare per rawResponse -> result: ${JSON.stringify(result.data?.rawResponse?.result, null, 2)}`, "SUCCESS");
+     
+     const mappedItemsRaw = parseNewsFromRawResponse(result.data?.rawResponse);
+     addLog(`Mapping da effettuare per mappedItemsRaw: ${JSON.stringify(mappedItemsRaw, null, 2)}`, "SUCCESS");
+   
       //
       // 1. Percorso principale corretto basato sulla tua struttura reale n8n
       //

@@ -65,91 +65,94 @@ const App: React.FC = () => {
     abortControllerRef.current = new AbortController();
 
     try {
-  let dataArray: any[] | null = null;
-  const result = await fetchNews(
+      let dataArray: any[] | null = null;
+      const result = await fetchNews(
         { tags: activeTag === 'TUTTE' ? [] : [activeTag] },
         undefined,
         abortControllerRef.current.signal
       );
-const responseData: any = result.data;
-  //
-  // 1. Percorso principale corretto basato sulla tua struttura reale n8n
-  //
-  const sc = responseData?.result?.structuredContent?.result;
-  const combineNode = sc?.runData?.["Combine All Posts"];
 
-  if (Array.isArray(combineNode) && combineNode.length > 0) {
-    const mainData = combineNode[0]?.data?.main;
+      const responseData: any = result.data;
 
-    if (
-      Array.isArray(mainData) &&
-      Array.isArray(mainData[0]) &&
-      mainData[0][0]?.json?.data
-    ) {
-      dataArray = mainData[0][0].json.data;
-      addLog(`Estratte ${dataArray.length} notizie dal percorso structuredContent`, "SUCCESS");
-    }
-  }
+      addLog(`Mapping da effettuare per: ${result.data}`, "SUCCESS");
+      //
+      // 1. Percorso principale corretto basato sulla tua struttura reale n8n
+      //
+      const sc = responseData?.result?.structuredContent?.result;
+      const combineNode = sc?.runData?.["Combine All Posts"];
 
-  //
-  // 2. Fallback: caso in cui la risposta arrivi come text JSON annidato
-  //
-  if (!dataArray) {
-    const contentPart = responseData?.result?.content?.find((c: any) => c.type === "text");
-    const rawJson = contentPart?.text;
+      if (Array.isArray(combineNode) && combineNode.length > 0) {
+        const mainData = combineNode[0]?.data?.main;
 
-    if (rawJson) {
-      const parsed = JSON.parse(rawJson);
-      const fallbackNode =
-        parsed?.result?.runData?.["Combine All Posts"]?.[0]?.data?.main?.[0]?.[0]?.json?.data;
-
-      if (Array.isArray(fallbackNode)) {
-        dataArray = fallbackNode;
-        addLog(`Estratte ${dataArray.length} notizie dal fallback JSON text`, "SUCCESS");
+        if (
+          Array.isArray(mainData) &&
+          Array.isArray(mainData[0]) &&
+          mainData[0][0]?.json?.data
+        ) {
+          dataArray = mainData[0][0].json.data;
+          addLog(`Estratte ${dataArray.length} notizie dal percorso structuredContent`, "SUCCESS");
+        }
       }
-    }
-  }
 
-  //
-  // Se ancora vuoto → nessun risultato
-  //
-  if (!dataArray) {
-    addLog("Nessun dato trovato nei percorsi previsti.", "WARNING");
-    dataArray = [];
-  }
+      //
+      // 2. Fallback: caso in cui la risposta arrivi come text JSON annidato
+      //
+      if (!dataArray) {
+        const contentPart = responseData?.result?.content?.find((c: any) => c.type === "text");
+        const rawJson = contentPart?.text;
 
-  //
-  // 3. Mapping campi richiesto
-  //
-  const mappedItems: NewsItem[] = dataArray.map((raw: any, index: number) => ({
-    id: raw.id || `n8n-${Date.now()}-${index}`,
-    title: raw.title || "Senza Titolo",
-    url: raw.link || "#",
-    summary: raw.contentSnippet || raw.summary || "Nessun sommario disponibile.",
-    published_at: raw.puibbDate || raw.pubDate || new Date().toISOString(),
-    tags: Array.isArray(raw.categories)
-      ? raw.categories
-      : raw.tags || ["AI"],
+        if (rawJson) {
+          const parsed = JSON.parse(rawJson);
+          const fallbackNode =
+            parsed?.result?.runData?.["Combine All Posts"]?.[0]?.data?.main?.[0]?.[0]?.json?.data;
 
-    source: {
-      name:
-        typeof raw.source === "string"
-          ? raw.source
-          : raw.source?.name || "N8N FEED",
-      domain: raw.source?.domain || "n8n.io",
-    },
+          if (Array.isArray(fallbackNode)) {
+            dataArray = fallbackNode;
+            addLog(`Estratte ${dataArray.length} notizie dal fallback JSON text`, "SUCCESS");
+          }
+        }
+      }
 
-    fetched_at: new Date().toISOString(),
-    language: "it",
-    score: { freshness: 1, relevance: 1, popularity: 1 },
-  }));
+      //
+      // Se ancora vuoto → nessun risultato
+      //
+      if (!dataArray) {
+        addLog("Nessun dato trovato nei percorsi previsti.", "WARNING");
+        dataArray = [];
+      }
 
-  setItems(mappedItems);
-      setStatus(mappedItems.length ? AppState.SUCCESS : AppState.EMPTY);
-      setLastSyncTime(new Date().toLocaleString('it-IT'));
-      addLog(`Mapping completato: ${mappedItems.length} notizie visualizzate.`, "SUCCESS");
+      //
+      // 3. Mapping campi richiesto
+      //
+      const mappedItems: NewsItem[] = dataArray.map((raw: any, index: number) => ({
+        id: raw.id || `n8n-${Date.now()}-${index}`,
+        title: raw.title || "Senza Titolo",
+        url: raw.link || "#",
+        summary: raw.contentSnippet || raw.summary || "Nessun sommario disponibile.",
+        published_at: raw.puibbDate || raw.pubDate || new Date().toISOString(),
+        tags: Array.isArray(raw.categories)
+          ? raw.categories
+          : raw.tags || ["AI"],
 
-} catch (error: any) {
+        source: {
+          name:
+            typeof raw.source === "string"
+              ? raw.source
+              : raw.source?.name || "N8N FEED",
+          domain: raw.source?.domain || "n8n.io",
+        },
+
+        fetched_at: new Date().toISOString(),
+        language: "it",
+        score: { freshness: 1, relevance: 1, popularity: 1 },
+      }));
+
+      setItems(mappedItems);
+          setStatus(mappedItems.length ? AppState.SUCCESS : AppState.EMPTY);
+          setLastSyncTime(new Date().toLocaleString('it-IT'));
+          addLog(`Mapping completato: ${mappedItems.length} notizie visualizzate.`, "SUCCESS");
+
+    } catch (error: any) {
       if (error.name === 'AbortError') {
         addLog("Richiesta annullata.", "SYSTEM");
         return;

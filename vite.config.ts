@@ -44,7 +44,7 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
 
             const mcpTarget = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
             
-            // Struttura payload aderente a standard JSON-RPC (come da curl)
+            // Struttura payload aderente a standard JSON-RPC
             const n8nPayload = {
               jsonrpc: "2.0",
               id: 4,
@@ -52,7 +52,7 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
               params: {
                 name: "execute_workflow",
                 arguments: {
-                  workflowId: "rvpkrwvBbd5NWLMt",
+                  workflowId: env.MCP_WORKFLOWID || "rvpkrwvBbd5NWLMt",
                   inputs: {
                     type: "chat",
                     chatInput: "Dammi le news su tecnologia e AI"
@@ -146,6 +146,7 @@ export default defineConfig(({ mode }) => {
     ],
     define: {
       'process.env.MCP_TOKEN': JSON.stringify(env.MCP_TOKEN),
+      'process.env.MCP_WORKFLOWID': JSON.stringify(env.MCP_WORKFLOWID || "rvpkrwvBbd5NWLMt"),
     },
     resolve: {
       alias: {

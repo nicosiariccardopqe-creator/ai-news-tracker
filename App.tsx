@@ -59,7 +59,7 @@ const App: React.FC = () => {
     
     addLog(`INVIO RICHIESTA JSON-RPC 2.0`, "NETWORK", {
       method: "tools/call",
-      params: { name: "execute_workflow", workflowId: "rvpkrwvBbd5NWLMt" }
+      params: { name: "execute_workflow", workflowId: process.env.MCP_WORKFLOWID }
     });
 
     abortControllerRef.current = new AbortController();
@@ -86,7 +86,6 @@ const App: React.FC = () => {
       if (Array.isArray(combineNode) && combineNode.length > 0) {
         const mainData = combineNode[0]?.data?.main;
         addLog(`mainData: ${JSON.stringify(mainData, null, 2)}`, "SUCCESS");
-        addLog(`mainData: ${JSON.stringify(mainData[0][0]?.json?.data, null, 2)}`, "SUCCESS");
         if (
           Array.isArray(mainData) &&
           Array.isArray(mainData[0]) &&
@@ -105,20 +104,18 @@ const App: React.FC = () => {
       if (!dataArray) {
         addLog(`Fallback: caso in cui la risposta arrivi come text JSON annidato`, "SUCCESS");
         const contentPart = responseData?.result?.content?.find((c: any) => c.type === "text");
-        addLog(`contentPart: ${JSON.stringify(contentPart, null, 2)}`, "SUCCESS");
         const rawJson = contentPart?.text;
-        addLog(`rawJson: ${JSON.stringify(rawJson, null, 2)}`, "SUCCESS");
         if (rawJson) {
-          const parsed = JSON.parse(rawJson);
-          const fallbackNode =
-            parsed?.result?.runData?.["Combine All Posts"]?.[0]?.data?.main?.[0]?.[0]?.json?.data;
-          addLog(`fallbackNode: ${JSON.stringify(fallbackNode, null, 2)}`, "SUCCESS");
-
-          if (Array.isArray(fallbackNode)) {
-            dataArray = fallbackNode;
-            addLog(`dataArray: ${dataArray}`, "SUCCESS");
-
-            addLog(`Estratte ${dataArray.length} notizie dal fallback JSON text`, "SUCCESS");
+          try {
+            const parsed = JSON.parse(rawJson);
+            const fallbackNode =
+              parsed?.result?.runData?.["Combine All Posts"]?.[0]?.data?.main?.[0]?.[0]?.json?.data;
+            if (Array.isArray(fallbackNode)) {
+              dataArray = fallbackNode;
+              addLog(`Estratte ${dataArray.length} notizie dal fallback JSON text`, "SUCCESS");
+            }
+          } catch(e) {
+            addLog("Errore nel parsing del JSON di fallback", "ERROR");
           }
         }
       }
@@ -158,9 +155,9 @@ const App: React.FC = () => {
       }));
 
       setItems(mappedItems);
-          setStatus(mappedItems.length ? AppState.SUCCESS : AppState.EMPTY);
-          setLastSyncTime(new Date().toLocaleString('it-IT'));
-          addLog(`Mapping completato: ${mappedItems.length} notizie visualizzate.`, "SUCCESS");
+      setStatus(mappedItems.length ? AppState.SUCCESS : AppState.EMPTY);
+      setLastSyncTime(new Date().toLocaleString('it-IT'));
+      addLog(`Mapping completato: ${mappedItems.length} notizie visualizzate.`, "SUCCESS");
 
     } catch (error: any) {
       if (error.name === 'AbortError') {

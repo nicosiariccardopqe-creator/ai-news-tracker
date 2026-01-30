@@ -74,7 +74,7 @@ const App: React.FC = () => {
 
       const responseData: any = result.data;
 
-      addLog(`Mapping da effettuare per: ${result.data}`, "SUCCESS");
+      addLog(`Mapping da effettuare per: ${JSON.stringify(result.data, null, 2)}`, "SUCCESS");
       //
       // 1. Percorso principale corretto basato sulla tua struttura reale n8n
       //

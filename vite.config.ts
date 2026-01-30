@@ -43,8 +43,8 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
             }
 
             const mcpTarget = "https://docker-n8n-xngg.onrender.com/mcp-server/http";
-            
-            // Struttura payload aderente a standard JSON-RPC
+            const workflowId = env.MCP_WORKFLOWID || "rvpkrwvBbd5NWLMt";
+
             const n8nPayload = {
               jsonrpc: "2.0",
               id: 4,
@@ -52,7 +52,7 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
               params: {
                 name: "execute_workflow",
                 arguments: {
-                  workflowId: env.MCP_WORKFLOWID || "rvpkrwvBbd5NWLMt",
+                  workflowId: workflowId,
                   inputs: {
                     type: "chat",
                     chatInput: "Dammi le news su tecnologia e AI"
@@ -60,30 +60,6 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
                 }
               }
             };
-
-            // Mascheramento per i log: primi 20 caratteri .. ultimi 5
-            const maskedToken = finalToken.length > 25 
-              ? `${finalToken.substring(0, 20)}..${finalToken.slice(-5)}` 
-              : finalToken;
-
-            const headersLog = {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${maskedToken}`,
-              'Accept': 'application/json, text/event-stream'
-            };
-
-            // Prepariamo un payload per il log che mostri il token mascherato
-            const logPayload = {
-              ...n8nPayload,
-              _debug_auth: `Bearer ${maskedToken}`
-            };
-
-            proxyTrace.push(`[PROXY] === PREPARAZIONE CHIAMATA N8N (JSON-RPC) ===`);
-            proxyTrace.push(`[PROXY] Target: ${mcpTarget}`);
-            proxyTrace.push(`[PROXY] Method: ${n8nPayload.method}`);
-            proxyTrace.push(`[PROXY] Headers: ${JSON.stringify(headersLog)}`);
-            proxyTrace.push(`[PROXY] Full Payload: ${JSON.stringify(logPayload)}`);
-            proxyTrace.push(`[PROXY] =================================`);
 
             const n8nResponse = await fetch(mcpTarget, {
               method: 'POST',
@@ -103,23 +79,17 @@ const mcpProxyPlugin = (env: Record<string, string>) => ({
               resultData = { rawResponse: resultText }; 
             }
 
-            proxyTrace.push(`[PROXY] n8n ha risposto con status ${n8nResponse.status}`);
-
             res.statusCode = n8nResponse.status;
             res.setHeader('Content-Type', 'application/json');
             res.setHeader('X-Proxy-Full-Trace', Buffer.from(JSON.stringify(proxyTrace)).toString('base64'));
             
-            const finalBody = {
-              ...(typeof resultData === 'object' ? resultData : { data: resultData }),
+            res.end(JSON.stringify({
+              ...resultData,
               _proxy_trace: proxyTrace
-            };
-
-            res.end(JSON.stringify(finalBody));
+            }));
           } catch (err: any) {
-            proxyTrace.push(`[PROXY] ERRORE CRITICO: ${err.message}`);
             res.statusCode = 502;
-            res.setHeader('Content-Type', 'application/json');
-            res.end(JSON.stringify({ error: "Proxy Exception", details: err.message, trace: proxyTrace }));
+            res.end(JSON.stringify({ error: "Proxy Exception", details: err.message }));
           }
         });
         return;
@@ -147,6 +117,8 @@ export default defineConfig(({ mode }) => {
     define: {
       'process.env.MCP_TOKEN': JSON.stringify(env.MCP_TOKEN),
       'process.env.MCP_WORKFLOWID': JSON.stringify(env.MCP_WORKFLOWID || "rvpkrwvBbd5NWLMt"),
+      'process.env.SUPABASE_URL': JSON.stringify(env.SUPABASE_URL || 'https://nmpotlkfefjmouceihyv.supabase.co'),
+      'process.env.SUPABASE_ANON_KEY': JSON.stringify(env.SUPABASE_ANON_KEY || 'sb_publishable_jmcHWXQAkszRcXBlJgU1Ww_vNyZg2-O'),
     },
     resolve: {
       alias: {

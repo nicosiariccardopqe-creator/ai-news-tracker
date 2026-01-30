@@ -1,15 +1,11 @@
 
-import React, { useState, useCallback, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useMemo, useRef, useEffect } from 'react';
 import { AppState, NewsItem, ErrorDetail } from './types';
-import { fetchNews } from './services/newsService';
+import { fetchNews, fetchFromSupabase, saveToSupabase } from './services/newsService';
 import Navbar from './components/Navbar';
 import NewsCard from './components/NewsCard';
 import DebugModal from './components/DebugModal';
 import { CATEGORIES, MOCK_INITIAL_NEWS } from './constants';
-
-import { createInterface } from "node:readline";
-import { Readable } from "node:stream";
-
 
 const App: React.FC = () => {
   const [items, setItems] = useState<NewsItem[]>(MOCK_INITIAL_NEWS);
@@ -17,7 +13,7 @@ const App: React.FC = () => {
   const [activeTag, setActiveTag] = useState('TUTTE');
   const [searchQuery, setSearchQuery] = useState('');
   const [isRefreshing, setIsRefreshing] = useState(false);
-  const [lastSyncTime, setLastSyncTime] = useState<string | null>(new Date().toLocaleString('it-IT'));
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
   
   const [logHistory, setLogHistory] = useState<ErrorDetail[]>([]);
   const [selectedLog, setSelectedLog] = useState<ErrorDetail | null>(null);
@@ -38,93 +34,94 @@ const App: React.FC = () => {
 
   const clearLogs = () => setLogHistory([]);
 
+  // Caricamento iniziale dal Database
+  useEffect(() => {
+    const loadFromDb = async () => {
+      if (!process.env.SUPABASE_URL) {
+        addLog("Variabili Supabase mancanti. Configura SUPABASE_URL e SUPABASE_ANON_KEY.", "ERROR");
+        return;
+      }
+      
+      addLog("Connessione a Supabase...", "SYSTEM");
+      try {
+        const dbItems = await fetchFromSupabase();
+        if (dbItems && dbItems.length > 0) {
+          setItems(dbItems);
+          setStatus(AppState.SUCCESS);
+          setLastSyncTime(new Date().toLocaleString('it-IT'));
+          addLog(`Sincronizzazione completata: ${dbItems.length} news caricate dal DB.`, "SUCCESS");
+        } else {
+          addLog("Database inizialmente vuoto o non raggiungibile. Uso mock data.", "INFO");
+          setItems(MOCK_INITIAL_NEWS);
+          setStatus(AppState.SUCCESS);
+        }
+      } catch (err: any) {
+        addLog("Errore durante il fetch iniziale.", "ERROR", err);
+      }
+    };
+    loadFromDb();
+  }, []);
+
   const handleLoadDefault = (e: React.MouseEvent) => {
     e.preventDefault();
     setItems(MOCK_INITIAL_NEWS);
     setStatus(AppState.SUCCESS);
     setLastSyncTime(new Date().toLocaleString('it-IT'));
-    addLog("Caricati dati di default (Locale)", "SYSTEM");
+    addLog("Mock data caricati manualmente.", "SYSTEM");
   };
 
   /**
- * Estrae e mappa gli articoli a partire da una stringa SSE contenuta in rawResponse.
- * Ritorna [] se non trova nulla.
- */
-function parseNewsFromRawResponse(rawResponse: string) {
-  // 1) Prendi tutte le righe che iniziano con "data:" (gestisce anche più righe data:)
-  const dataLines = rawResponse
-    .split("\n")
-    .filter(l => l.startsWith("data:"))
-    .map(l => l.slice(5).trim()); // rimuove "data: "
+   * Estrae e mappa gli articoli a partire da una stringa SSE o risposta JSON.
+   */
+  function parseNewsFromRawResponse(rawResponse: string) {
+    if (!rawResponse) return [];
+    
+    const dataLines = rawResponse
+      .split("\n")
+      .filter(l => l.startsWith("data:"))
+      .map(l => l.slice(5).trim());
 
-  if (dataLines.length === 0) {
-    console.warn("Nessuna riga 'data:' trovata nello SSE.");
-    return [];
-  }
+    if (dataLines.length === 0) return [];
 
-  // Se ci sono più eventi separati da righe vuote, potresti voler gestire blocchi.
-  // Per semplicità, qui uniamo le righe data: del primo evento.
-  // (Se ti servono *tutti* gli eventi, dimmelo e adatto il codice.)
-  const dataStr = dataLines.join("\n");
-
-  let evt: any;
-  try {
-    evt = JSON.parse(dataStr); // JSON dell'evento SSE
-  } catch (e) {
-    console.error("Impossibile fare JSON.parse() del blocco data:", e);
-    return [];
-  }
-
-  // 2) Tentativo A: percorso structuredContent (il tuo percorso “corretto”)
-  let articles =
-    evt?.result?.structuredContent?.result?.runData?.["Combine All Posts"]?.[0]
-      ?.data?.main?.[0]?.[0]?.json?.data;
-
-  // 3) Tentativo B (fallback): JSON annidato in content[].text (stringa)
-  if (!Array.isArray(articles)) {
+    const dataStr = dataLines.join("\n");
+    let evt: any;
     try {
-      const textPart = evt?.result?.content?.find(
-        (c: any) => c?.type === "text" && typeof c?.text === "string"
-      );
-      if (textPart?.text) {
-        const inner = JSON.parse(textPart.text); // <-- secondo parse
-        articles =
-          inner?.result?.runData?.["Combine All Posts"]?.[0]
-            ?.data?.main?.[0]?.[0]?.json?.data;
-      }
-    } catch {
-      // ignoriamo se non è presente
+      evt = JSON.parse(dataStr);
+    } catch (e) {
+      return [];
     }
+
+    let articles = evt?.result?.structuredContent?.result?.runData?.["Combine All Posts"]?.[0]?.data?.main?.[0]?.[0]?.json?.data;
+
+    if (!Array.isArray(articles)) {
+      try {
+        const textPart = evt?.result?.content?.find((c: any) => c?.type === "text" && typeof c?.text === "string");
+        if (textPart?.text) {
+          const inner = JSON.parse(textPart.text);
+          articles = inner?.result?.runData?.["Combine All Posts"]?.[0]?.data?.main?.[0]?.[0]?.json?.data;
+        }
+      } catch { /* skip */ }
+    }
+
+    if (!Array.isArray(articles)) return [];
+
+    const nowIso = new Date().toISOString();
+    return articles.map((raw: any, index: number) => ({
+      id: raw?.id || `n8n-${Date.now()}-${index}`,
+      title: raw?.title || "Senza Titolo",
+      url: raw?.link || "#",
+      summary: raw?.contentSnippet || raw?.summary || "Nessun sommario disponibile.",
+      published_at: raw?.puibbDate || raw?.pubDate || nowIso,
+      tags: Array.isArray(raw?.categories) ? raw.categories : (raw?.tags || ["AI"]),
+      source: {
+        name: typeof raw?.source === "string" ? raw.source : (raw?.source?.name || "N8N FEED"),
+        domain: raw?.source?.domain || "n8n.io",
+      },
+      fetched_at: nowIso,
+      language: "it",
+      score: { freshness: 1, relevance: 1, popularity: 1 },
+    }));
   }
-
-  if (!Array.isArray(articles)) {
-    console.warn("Nessun array di articoli trovato nei percorsi previsti.");
-    return [];
-  }
-
-  // 4) Mapping
-  const nowIso = new Date().toISOString();
-  const mapped = articles.map((raw: any, index: number) => ({
-    id: raw?.id || `n8n-${Date.now()}-${index}`,
-    title: raw?.title || "Senza Titolo",
-    url: raw?.link || "#",
-    summary: raw?.contentSnippet || raw?.summary || "Nessun sommario disponibile.",
-    published_at: raw?.puibbDate || raw?.pubDate || nowIso,
-    tags: Array.isArray(raw?.categories) ? raw.categories : (raw?.tags || ["AI"]),
-    source: {
-      name:
-        typeof raw?.source === "string"
-          ? raw.source
-          : raw?.source?.name || "N8N FEED",
-      domain: raw?.source?.domain || "n8n.io",
-    },
-    fetched_at: nowIso,
-    language: "it",
-    score: { freshness: 1, relevance: 1, popularity: 1 },
-  }));
-
-  return mapped;
-}
 
   const handleRefresh = useCallback(async (e?: React.MouseEvent) => {
     if (e) {
@@ -141,15 +138,11 @@ function parseNewsFromRawResponse(rawResponse: string) {
     setIsRefreshing(true);
     setStatus(AppState.LOADING);
     
-    addLog(`INVIO RICHIESTA JSON-RPC 2.0`, "NETWORK", {
-      method: "tools/call",
-      params: { name: "execute_workflow", workflowId: process.env.MCP_WORKFLOWID }
-    });
+    addLog(`AVVIO WORKFLOW N8N: ${process.env.MCP_WORKFLOWID}`, "NETWORK");
 
     abortControllerRef.current = new AbortController();
 
     try {
-      let dataArray: any[] | null = null;
       const result = await fetchNews(
         { tags: activeTag === 'TUTTE' ? [] : [activeTag] },
         undefined,
@@ -157,24 +150,34 @@ function parseNewsFromRawResponse(rawResponse: string) {
       );
 
       const mappedItemsRaw = parseNewsFromRawResponse(result.data?.rawResponse);
-     
-      setItems(mappedItemsRaw);
-      setStatus(mappedItemsRaw.length ? AppState.SUCCESS : AppState.EMPTY);
+      
+      if (mappedItemsRaw.length > 0) {
+        addLog(`Salvataggio di ${mappedItemsRaw.length} articoli su Supabase...`, "SYSTEM");
+        await saveToSupabase(mappedItemsRaw);
+        
+        const updatedItems = await fetchFromSupabase();
+        setItems(updatedItems);
+        setStatus(AppState.SUCCESS);
+        addLog(`Pipeline completata con successo.`, "SUCCESS");
+      } else {
+        addLog("Il workflow non ha restituito nuovi articoli.", "WARNING");
+        setStatus(items.length > 0 ? AppState.SUCCESS : AppState.EMPTY);
+      }
+      
       setLastSyncTime(new Date().toLocaleString('it-IT'));
-      addLog(`Mapping completato: ${mappedItemsRaw.length} notizie visualizzate.`, "SUCCESS");
 
     } catch (error: any) {
       if (error.name === 'AbortError') {
-        addLog("Richiesta annullata.", "SYSTEM");
+        addLog("Operazione interrotta dall'utente.", "SYSTEM");
         return;
       }
-      addLog(`ERRORE PIPELINE: ${error.message || 'Errore di connessione'}`, "ERROR", error);
+      addLog(`ERRORE PIPELINE: ${error.message || 'Connessione fallita'}`, "ERROR", error);
       setStatus(AppState.ERROR);
     } finally {
       setIsRefreshing(false);
       abortControllerRef.current = null;
     }
-  }, [isRefreshing, activeTag]);
+  }, [isRefreshing, activeTag, items.length]);
 
   const filteredItems = useMemo(() => {
     return items.filter(item => {
@@ -203,7 +206,7 @@ function parseNewsFromRawResponse(rawResponse: string) {
                     <span className="text-xl font-black text-slate-900 leading-none mb-1">AI News Engine</span>
                     <div className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 ${status === AppState.SUCCESS ? 'text-emerald-500' : 'text-slate-400'}`}>
                       <span className={`w-2 h-2 rounded-full bg-current ${status === AppState.LOADING ? 'animate-ping' : ''}`}></span>
-                      {status === AppState.LOADING ? 'Sincronizzazione...' : 'Pronto'}
+                      {status === AppState.LOADING ? 'Sincronizzazione...' : 'Live & Persistent'}
                     </div>
                     {lastSyncTime && (
                       <span className="text-[9px] font-bold text-slate-400 mt-1 uppercase tracking-tighter">
@@ -218,7 +221,7 @@ function parseNewsFromRawResponse(rawResponse: string) {
                   type="button"
                   onClick={handleLoadDefault}
                   className="w-12 h-12 rounded-xl flex items-center justify-center transition-all bg-slate-100 hover:bg-slate-200 text-slate-500 border border-slate-200"
-                  title="Carica dati default"
+                  title="Mock Data"
                  >
                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M11 15l-3-3m0 0l3-3m-3 3h8M3 12a9 9 0 1118 0 9 9 0 01-18 0z" />
@@ -229,7 +232,7 @@ function parseNewsFromRawResponse(rawResponse: string) {
                   type="button"
                   onClick={handleRefresh} 
                   className={`w-16 h-16 rounded-2xl flex items-center justify-center transition-all shadow-xl active:scale-95 ${isRefreshing ? 'bg-red-500' : 'bg-slate-900'} text-white group`}
-                  title={isRefreshing ? "Annulla" : "Sincronizza con n8n"}
+                  title={isRefreshing ? "Annulla" : "Aggiorna dal Web e Salva su DB"}
                  >
                    {isRefreshing ? (
                      <svg className="w-8 h-8" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -247,7 +250,7 @@ function parseNewsFromRawResponse(rawResponse: string) {
             <section className="bg-white/80 backdrop-blur-xl rounded-3xl p-8 card-shadow border border-white/50 space-y-6">
               <input 
                 type="text" 
-                placeholder="Cerca nelle notizie di oggi..."
+                placeholder="Cerca tra le news salvate..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 className="w-full h-16 px-6 bg-slate-100/50 rounded-2xl text-lg font-semibold focus:outline-none focus:ring-2 focus:ring-slate-900/5 transition-all"
@@ -271,7 +274,7 @@ function parseNewsFromRawResponse(rawResponse: string) {
                 filteredItems.map(item => <NewsCard key={item.id} item={item} />)
               ) : (
                 <div className="col-span-full flex flex-col items-center justify-center py-20 text-slate-400 bg-white/30 rounded-3xl border border-dashed border-slate-200">
-                  <p className="font-black uppercase tracking-widest text-xs">Nessuna notizia trovata</p>
+                  <p className="font-black uppercase tracking-widest text-xs">Nessuna notizia nel database</p>
                 </div>
               )}
             </div>
@@ -280,8 +283,8 @@ function parseNewsFromRawResponse(rawResponse: string) {
           <aside className="w-full lg:w-[400px]">
             <div className="bg-[#0a0a0a] rounded-[2.5rem] p-10 text-white min-h-[600px] sticky top-8 border border-white/5 shadow-2xl">
               <div className="flex items-center justify-between mb-10">
-                <h2 className="text-3xl font-black tracking-tighter">Trending Now</h2>
-                <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse"></span>
+                <h2 className="text-3xl font-black tracking-tighter">Database Feed</h2>
+                <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
               </div>
               <div className="space-y-6">
                 {items.slice(0, 8).map((item, i) => (
@@ -295,12 +298,12 @@ function parseNewsFromRawResponse(rawResponse: string) {
           </aside>
         </div>
 
-        {/* Console di Debug */}
+        {/* Debug Terminal */}
         <section className="bg-[#050505] rounded-[2.5rem] border border-white/5 shadow-2xl overflow-hidden mt-12 transition-all duration-500">
           <div className="px-8 py-5 border-b border-white/5 bg-zinc-900/50 flex items-center justify-between">
             <div className="flex items-center gap-4">
               <div className={`w-2 h-2 rounded-full ${isRefreshing ? 'bg-amber-500 animate-pulse' : 'bg-emerald-500'}`}></div>
-              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Full-Stack Data Pipeline & Server Tracking</span>
+              <span className="text-[10px] font-black text-zinc-500 uppercase tracking-[0.3em]">Supabase Data Persistence Layer</span>
             </div>
             <div className="flex items-center gap-4">
                <button onClick={clearLogs} className="text-[9px] font-black text-zinc-500 hover:text-white uppercase tracking-widest transition-colors">Clear</button>
@@ -314,7 +317,7 @@ function parseNewsFromRawResponse(rawResponse: string) {
             <div className="p-6 h-[350px] overflow-y-auto font-mono text-[11px] no-scrollbar bg-black/40 animate-fade-in">
               {logHistory.length === 0 && (
                 <div className="h-full flex flex-col items-center justify-center text-zinc-800 space-y-2">
-                  <p className="italic font-bold tracking-widest uppercase text-[9px]">In attesa di dati...</p>
+                  <p className="italic font-bold tracking-widest uppercase text-[9px]">Standby...</p>
                 </div>
               )}
               {logHistory.map((log, i) => (

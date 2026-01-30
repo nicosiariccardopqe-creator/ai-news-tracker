@@ -5,7 +5,30 @@
 
 # AI News Tracker
 
-Questa applicazione ti permette di monitorare le ultime notizie nel campo dell'Intelligenza Artificiale in tempo reale.
+Questa applicazione monitora le ultime notizie nel campo dell'Intelligenza Artificiale in tempo reale e le salva su un database Supabase per garantirne la persistenza.
+
+## Configurazione Database Supabase
+
+Per far funzionare la persistenza, esegui il seguente comando SQL nel "SQL Editor" del tuo progetto Supabase:
+
+```sql
+CREATE TABLE news (
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  summary TEXT,
+  url TEXT NOT NULL,
+  source_name TEXT,
+  source_domain TEXT,
+  published_at TIMESTAMPTZ,
+  fetched_at TIMESTAMPTZ DEFAULT NOW(),
+  tags JSONB
+);
+
+-- Abilita l'accesso pubblico (solo se necessario, altrimenti configura RLS)
+ALTER TABLE news ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow public read" ON news FOR SELECT USING (true);
+CREATE POLICY "Allow public upsert" ON news FOR ALL USING (true);
+```
 
 ## Esecuzione Locale
 
@@ -13,7 +36,9 @@ Questa applicazione ti permette di monitorare le ultime notizie nel campo dell'I
 
 1. Installa le dipendenze:
    `npm install`
-2. Imposta la `GEMINI_API_KEY` nel file [.env.local](.env.local) con la tua chiave API di Gemini.
+2. Imposta le variabili nel file `.env`:
+   - `MCP_TOKEN`: Il tuo token n8n.
+   - `MCP_WORKFLOWID`: L'ID del tuo workflow (es: `rvpkrwvBbd5NWLMt`).
 3. Avvia l'app:
    `npm run dev`
 

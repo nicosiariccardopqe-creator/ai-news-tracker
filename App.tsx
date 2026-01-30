@@ -7,6 +7,10 @@ import NewsCard from './components/NewsCard';
 import DebugModal from './components/DebugModal';
 import { CATEGORIES, MOCK_INITIAL_NEWS } from './constants';
 
+import { createInterface } from "node:readline";
+import { Readable } from "node:stream";
+
+
 const App: React.FC = () => {
   const [items, setItems] = useState<NewsItem[]>(MOCK_INITIAL_NEWS);
   const [status, setStatus] = useState<AppState>(AppState.IDLE);
@@ -75,6 +79,8 @@ const App: React.FC = () => {
       const responseData: any = result.data;
 
       addLog(`Mapping da effettuare per: ${JSON.stringify(result.data, null, 2)}`, "SUCCESS");
+      addLog(`Mapping da effettuare per result: ${JSON.stringify(result.data?.result, null, 2)}`, "SUCCESS");
+      addLog(`Mapping da effettuare per rawResponse: ${JSON.stringify(result.data?.rawResponse, null, 2)}`, "SUCCESS");
       //
       // 1. Percorso principale corretto basato sulla tua struttura reale n8n
       //

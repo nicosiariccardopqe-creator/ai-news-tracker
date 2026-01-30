@@ -243,10 +243,10 @@ function parseNewsFromRawResponse(rawResponse: string) {
         score: { freshness: 1, relevance: 1, popularity: 1 },
       }));
 
-      setItems(mappedItems);
-      setStatus(mappedItems.length ? AppState.SUCCESS : AppState.EMPTY);
+      setItems(mappedItemsRaw);
+      setStatus(mappedItemsRaw.length ? AppState.SUCCESS : AppState.EMPTY);
       setLastSyncTime(new Date().toLocaleString('it-IT'));
-      addLog(`Mapping completato: ${mappedItems.length} notizie visualizzate.`, "SUCCESS");
+      addLog(`Mapping completato: ${mappedItemsRaw.length} notizie visualizzate.`, "SUCCESS");
 
     } catch (error: any) {
       if (error.name === 'AbortError') {

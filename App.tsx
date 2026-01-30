@@ -79,11 +79,14 @@ const App: React.FC = () => {
       // 1. Percorso principale corretto basato sulla tua struttura reale n8n
       //
       const sc = responseData?.result?.structuredContent?.result;
+       addLog(`sc: ${JSON.stringify(responseData?.result?.structuredContent?.result, null, 2)}`, "SUCCESS");
       const combineNode = sc?.runData?.["Combine All Posts"];
+       addLog(`combineNode: ${JSON.stringify(sc?.runData?.["Combine All Posts"], null, 2)}`, "SUCCESS");
 
       if (Array.isArray(combineNode) && combineNode.length > 0) {
         const mainData = combineNode[0]?.data?.main;
-
+        addLog(`mainData: ${JSON.stringify(mainData, null, 2)}`, "SUCCESS");
+        addLog(`mainData: ${JSON.stringify(mainData[0][0]?.json?.data, null, 2)}`, "SUCCESS");
         if (
           Array.isArray(mainData) &&
           Array.isArray(mainData[0]) &&
@@ -91,6 +94,8 @@ const App: React.FC = () => {
         ) {
           dataArray = mainData[0][0].json.data;
           addLog(`Estratte ${dataArray.length} notizie dal percorso structuredContent`, "SUCCESS");
+        } else {
+          addLog(`mainData non processato`, "SUCCESS");
         }
       }
 
@@ -98,16 +103,21 @@ const App: React.FC = () => {
       // 2. Fallback: caso in cui la risposta arrivi come text JSON annidato
       //
       if (!dataArray) {
+        addLog(`Fallback: caso in cui la risposta arrivi come text JSON annidato`, "SUCCESS");
         const contentPart = responseData?.result?.content?.find((c: any) => c.type === "text");
+        addLog(`contentPart: ${JSON.stringify(contentPart, null, 2)}`, "SUCCESS");
         const rawJson = contentPart?.text;
-
+        addLog(`rawJson: ${JSON.stringify(rawJson, null, 2)}`, "SUCCESS");
         if (rawJson) {
           const parsed = JSON.parse(rawJson);
           const fallbackNode =
             parsed?.result?.runData?.["Combine All Posts"]?.[0]?.data?.main?.[0]?.[0]?.json?.data;
+          addLog(`fallbackNode: ${JSON.stringify(fallbackNode, null, 2)}`, "SUCCESS");
 
           if (Array.isArray(fallbackNode)) {
             dataArray = fallbackNode;
+            addLog(`dataArray: ${dataArray}`, "SUCCESS");
+
             addLog(`Estratte ${dataArray.length} notizie dal fallback JSON text`, "SUCCESS");
           }
         }

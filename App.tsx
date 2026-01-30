@@ -79,7 +79,8 @@ const App: React.FC = () => {
       const responseData: any = result.data;
 
       addLog(`Mapping da effettuare per: ${JSON.stringify(result.data, null, 2)}`, "SUCCESS");
-      addLog(`Mapping da effettuare per rawResponse: ${JSON.stringify(result.data?.rawResponse?.result, null, 2)}`, "SUCCESS");
+      addLog(`Mapping da effettuare per rawResponse: ${JSON.stringify(result.data?.rawResponse, null, 2)}`, "SUCCESS");
+      addLog(`Mapping da effettuare per rawResponse -> result: ${JSON.stringify(result.data?.rawResponse?.result, null, 2)}`, "SUCCESS");
       //
       // 1. Percorso principale corretto basato sulla tua struttura reale n8n
       //

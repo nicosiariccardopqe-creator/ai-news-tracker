@@ -7,6 +7,15 @@
 
 Questa applicazione monitora le ultime notizie nel campo dell'Intelligenza Artificiale in tempo reale e le salva su un database Supabase per garantirne la persistenza.
 
+## Configurazione n8n
+1. Avviare il servizio su render
+2. Configurare n8n seguendo il wizard; username: nicosiariccardopqe@gmail.com, pwd: Abbondanza1!. Non valorizzare le 2 finestre con i dati accessori, saltarle
+3. Start From Scratch -> Import from File -> NewsAI.json, poi salvare
+4. Icona del mio profilo -> Settings -> MCP Access -> Enable MCP. In tab OAuth è presente Server USL, in tab Access Token prendere il relativo token (se occorre)
+5. Tornare al diagramma, prendere nota del Workflow ID (ultima parte URL -> p87vorlcija2kvQh: https://docker-n8n-xngg.onrender.com/workflow/p87vorlcija2kvQh)
+6. Attivare il workflow: spostare lo slide accanto a Share su Active, poi selezionare Enable MCP Access, poi abilitare la voce: Available in MCP e salvare
+7. Su render -> Dashboard del servizio della webapp (es: ai-news-tracker) andare su Manage -> Environment e aggiornare la variabile MCP_WORKFLOWID con quanto specificato nel punto 5 e, se occorre MCP_TOKEN come da punto 4
+
 ## Configurazione Database Supabase
 
 Per far funzionare la persistenza, esegui il seguente comando SQL nel "SQL Editor" del tuo progetto Supabase:
